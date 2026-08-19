@@ -1,0 +1,234 @@
+# Elementor MCP — local development stack (EMCP-001)
+#
+# Network isolation is the point of this file, not an afterthought:
+#   wp_net     WordPress app containers <-> their MySQL <-> mcp
+#   data_net   mcp <-> Postgres (registry/credentials) <-> minio
+#   render_net renderer <-> WordPress app containers <-> minio <-> mcp
+#
+# `renderer` is attached to render_net ONLY. It has no route to db-wp (MySQL)
+# or db (Postgres, which holds encrypted credentials) — see solution.md §9.5
+# and scripts/test-renderer-isolation.sh, which asserts this instead of
+# assuming it.
+#
+# mcp and renderer run placeholder commands until EMCP-005 and EMCP-031 land;
+# this file's job is the topology, not the application code.
+
+services:
+
+  db-wp:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD}
+      WP_DB_PASSWORD: ${WP_DB_PASSWORD}
+    volumes:
+      - db-wp-data:/var/lib/mysql
+      - ./scripts/db-wp-init.sh:/docker-entrypoint-initdb.d/db-wp-init.sh:ro
+    networks: [wp_net]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  wp-v4-pro:
+    image: wordpress:php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db-wp:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db-wp
+      WORDPRESS_DB_NAME: wp_v4_pro
+      WORDPRESS_DB_USER: wp_v4_pro
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+    ports:
+      - "${WP_V4_PRO_PORT}:80"
+    volumes:
+      - wp-v4-pro-data:/var/www/html
+      - ./sandboxes/wp-v4-pro:/sandbox-assets:ro
+    networks: [wp_net, render_net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/wp-login.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  wp-v3-free:
+    image: wordpress:php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db-wp:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db-wp
+      WORDPRESS_DB_NAME: wp_v3_free
+      WORDPRESS_DB_USER: wp_v3_free
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+    ports:
+      - "${WP_V3_FREE_PORT}:80"
+    volumes:
+      - wp-v3-free-data:/var/www/html
+      - ./sandboxes/wp-v3-free:/sandbox-assets:ro
+    networks: [wp_net, render_net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/wp-login.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # wp-cli services (EMCP-002) — share the same volume + DB credentials as
+  # their WordPress container, so `wp` commands operate on the real install.
+  # `profiles: [tools]` keeps these out of a plain `docker compose up`,
+  # preserving EMCP-001's "one command brings up the stack" property.
+  # Invoked via `docker compose run --rm wpcli-<site> <wp-cli args>`.
+
+  wpcli-v4-pro:
+    image: wordpress:cli
+    profiles: [tools]
+    # wordpress:cli (Alpine) runs www-data as uid 82; wordpress:*-apache
+    # (Debian) runs it as uid 33. Pinned here so both containers write to
+    # the shared volume as the same owner — without this, plugin installs
+    # fail with permission errors that look unrelated to the real cause.
+    user: "33:33"
+    depends_on:
+      wp-v4-pro:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db-wp
+      WORDPRESS_DB_NAME: wp_v4_pro
+      WORDPRESS_DB_USER: wp_v4_pro
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+    volumes:
+      - wp-v4-pro-data:/var/www/html
+      - ./sandboxes/wp-v4-pro:/sandbox-assets:ro
+    networks: [wp_net]
+
+  wpcli-v3-free:
+    image: wordpress:cli
+    profiles: [tools]
+    user: "33:33"
+    depends_on:
+      wp-v3-free:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db-wp
+      WORDPRESS_DB_NAME: wp_v3_free
+      WORDPRESS_DB_USER: wp_v3_free
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+    volumes:
+      - wp-v3-free-data:/var/www/html
+      - ./sandboxes/wp-v3-free:/sandbox-assets:ro
+    networks: [wp_net]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [data_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio-data:/data
+    networks: [data_net, render_net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp:
+    image: node:20-alpine
+    restart: unless-stopped
+    # Placeholder until EMCP-005 (Node server skeleton) exists. Proves the
+    # topology now; gets replaced by a real Dockerfile building server/.
+    command: >
+      node -e "
+      require('http').createServer((req, res) => {
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({ status: 'placeholder', task: 'EMCP-005 not yet implemented' }));
+      }).listen(3000, () => console.log('mcp placeholder listening on 3000'));
+      "
+    ports:
+      - "${MCP_PORT}:3000"
+    networks: [wp_net, data_net, render_net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  renderer:
+    image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    restart: unless-stopped
+    # Placeholder until EMCP-031 exists. render_net ONLY — see the isolation
+    # note at the top of this file.
+    command: >
+      node -e "
+      require('http').createServer((req, res) => {
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({ status: 'placeholder', task: 'EMCP-031 not yet implemented' }));
+      }).listen(3100, () => console.log('renderer placeholder listening on 3100'));
+      "
+    ports:
+      - "${RENDERER_PORT}:3100"
+    networks: [render_net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dev:
+    build:
+      context: ./docker/dev
+    restart: unless-stopped
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    networks: [wp_net, data_net, render_net]
+    depends_on:
+      db-wp:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+networks:
+  wp_net:
+    driver: bridge
+  data_net:
+    driver: bridge
+  render_net:
+    driver: bridge
+
+volumes:
+  db-wp-data:
+  wp-v4-pro-data:
+  wp-v3-free-data:
+  postgres-data:
+  minio-data:
