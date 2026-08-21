@@ -303,6 +303,25 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 | POST | `/snapshots/{id}/restore` | Rollback |
 | POST | `/cache/invalidate` | Element cache + CSS, with warm-up |
 
+**`GET /site` — implemented (EMCP-004).** Response shape, all fields read from Elementor's runtime at call time, never hardcoded:
+
+```jsonc
+{
+  "elementor_version": "4.2.3",
+  "generation_default": "v4" | "v3" | "legacy",   // Experiments_Manager::is_feature_active('e_atomic_elements' | 'container')
+  "pro_tier": "free" | "pro-tier-unresolved",       // Essential/Advanced split deferred — no Pro install to introspect yet (§12)
+  "breakpoints": {
+    "<name>": { "enabled": bool, "direction": "min" | "max", "value": number }
+    // one entry per Elementor::$instance->breakpoints->get_breakpoints(), disabled ones included
+  },
+  "experiments": { "element_caching": bool, "optimized_markup": bool },
+  "css_print_method": "external" | "internal",
+  "plugin_version": "0.1.0"
+}
+```
+
+Auth: `Authorization` header required — absence is treated as cookie authentication and rejected with `401 emcp_cookie_auth_rejected` regardless of whether a valid nonce would otherwise pass WordPress's own cookie-auth check (solution.md §9.7's "rejected outright"). A present-but-insufficient-capability user gets `403 emcp_forbidden`. Verified live against both sandboxes with Application Passwords over HTTP + `WP_ENVIRONMENT_TYPE=local` (`CLAUDE.md`).
+
 ### 6.1 Why the plugin stays thin
 
 It owns only what must run in PHP: registry introspection, Document API writes, kit and global-class reads, media, preview tokens, cache invalidation, and snapshot storage. No DSL, no compilation, no MCP awareness.
