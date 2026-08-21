@@ -92,6 +92,25 @@ provision_site() {
     wp "$wpcli" plugin install elementor --activate
   fi
 
+  echo "--- $site: Elementor generation ---"
+  case "$site" in
+    wp-v4-pro)
+      # V4/atomic is Elementor's own default on a fresh install (verified
+      # EMCP-002/EMCP-004: e_atomic_elements and e_opt_in_v4* are both
+      # 'default' -> active out of the box). Nothing to force here — forcing
+      # it explicitly would hide the day this stops being true upstream.
+      ;;
+    wp-v3-free)
+      # Force the V3 fork explicitly. Without this, both sandboxes run
+      # identical default experiment state and EMCP-004's "materially
+      # different values from each sandbox" acceptance criterion is
+      # unverifiable — this is what wp-v3-free's name promises.
+      wp "$wpcli" option update elementor_experiment-e_atomic_elements inactive
+      wp "$wpcli" option update elementor_experiment-e_opt_in_v4 inactive
+      wp "$wpcli" option update elementor_experiment-e_opt_in_v4_page inactive
+      ;;
+  esac
+
   if [ -n "$pro_zip" ]; then
     echo "--- $site: Elementor Pro ---"
     if wp "$wpcli" plugin is-installed elementor-pro 2>/dev/null; then

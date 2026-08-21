@@ -61,7 +61,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Reset cannot target anything but sandbox containers, proven by a test that attempts it and fails
   - Reset is idempotent
 
-#### [ ] Task 3: Plugin skeleton
+#### [x] Task 3: Plugin skeleton
 - **ID:** EMCP-003
 - **Depends:** EMCP-001
 - **Verify:** live
@@ -73,7 +73,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Boots after Elementor's widget registration
   - Fails gracefully with a legible admin notice when Elementor is absent
 
-#### [ ] Task 4: `GET /site` endpoint
+#### [x] Task 4: `GET /site` endpoint
 - **ID:** EMCP-004
 - **Depends:** EMCP-003
 - **Verify:** live
@@ -84,7 +84,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Real permission callback; cookie-authenticated requests rejected
   - Returns correct and materially different values from each sandbox
 
-#### [ ] Task 5: Node server skeleton
+#### [x] Task 5: Node server skeleton
 - **ID:** EMCP-005
 - **Depends:** EMCP-001
 - **Verify:** unit
