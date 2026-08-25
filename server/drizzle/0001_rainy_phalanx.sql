@@ -1,0 +1,1 @@
+ALTER TABLE "credentials" ADD COLUMN "encrypted_secret" text NOT NULL;

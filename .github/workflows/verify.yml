@@ -1,0 +1,46 @@
+name: verify
+
+# Runs the no-network half of the project's own verify:unit split
+# (ralphloop.md / EMCP-011) on every push and PR. Does NOT provision the
+# Docker Compose sandboxes or run scripts/check-registry-drift.ts /
+# scripts/verify-live.sh — those need two live WordPress+Elementor
+# containers, which is real infrastructure this workflow doesn't stand up.
+# See tests/snapshots/README.md for what that gap means in practice.
+#
+# UNVERIFIED: written to match this repo's actual install/test commands,
+# but has not been run against a real GitHub Actions runner (none available
+# in this environment) — sanity-check the first real run rather than
+# trusting this file blindly.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install server dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Install plugin dependencies
+        run: composer install
+        working-directory: plugin
+
+      - name: verify:unit (root + server + plugin)
+        run: npm run verify:unit

@@ -1,0 +1,80 @@
+{
+  "_provenance": {
+    "fixture": "deep-nested",
+    "covers": "Depth limiting and truncation — 5 containers nested inside each other, with a widget at the bottom carrying identifiable content (\"Level 5\")",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v4-pro",
+    "sourcePostId": 5,
+    "sourceUrl": "http://localhost:8081/wp-admin/post.php?post=5&action=elementor",
+    "capturedAt": "2026-08-24T11:21:27+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human) by dragging a Container into a Container five times, captured via `wp post meta get 5 _elementor_data` (EMCP-008). First attempt just labeled a flat top-level widget \"Level 5\" with no real nesting — caught by inspecting the captured structure, not by trusting the label, and redone.",
+    "depthNote": "5 elType:\"container\" levels (each isInner:true except the outermost), the e-heading widget is a 6th level. Every intermediate container carries settings.content_width:\"full\" — Elementor's own default when a container is dropped inside another, not something set deliberately.",
+    "extractionNote": "This container tree was the sixth top-level element on the source page, alongside the mixed-v3-v4/unicode-roundtrip/responsive-widescreen fixtures' content. Extracted here in isolation.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "c8a1583",
+      "elType": "container",
+      "settings": { "content_width": "full" },
+      "elements": [
+        {
+          "id": "a5bdf07",
+          "elType": "container",
+          "settings": { "content_width": "full" },
+          "elements": [
+            {
+              "id": "3d93511",
+              "elType": "container",
+              "settings": { "content_width": "full" },
+              "elements": [
+                {
+                  "id": "30201b8",
+                  "elType": "container",
+                  "settings": { "content_width": "full" },
+                  "elements": [
+                    {
+                      "id": "1638085",
+                      "elType": "container",
+                      "settings": { "content_width": "full" },
+                      "elements": [
+                        {
+                          "id": "77535a2",
+                          "elType": "widget",
+                          "settings": {
+                            "title": {
+                              "$$type": "html-v3",
+                              "value": { "content": { "$$type": "string", "value": "Level 5" }, "children": [] }
+                            },
+                            "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+                          },
+                          "elements": [],
+                          "widgetType": "e-heading",
+                          "styles": [],
+                          "interactions": [],
+                          "editor_settings": [],
+                          "version": "0.0"
+                        }
+                      ],
+                      "isInner": true
+                    }
+                  ],
+                  "isInner": true
+                }
+              ],
+              "isInner": true
+            }
+          ],
+          "isInner": true
+        }
+      ],
+      "isInner": false
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "algorithm": "sha256",
+  "note": "Guards tests/fixtures/*.json against unsigned edits (Blueprints.md section 9.1, EMCP-009). Update an entry only after a human has confirmed a fixture genuinely needed to change -- never to make a failing test pass. See tests/fixtures/README.md.",
+  "hashes": {
+    "deep-nested.json": "4b125279518d7ae5fae07c709ac08bc9ef9b26cfe1b44b677de2a21ca7220c8d",
+    "legacy-section-column.json": "327925221040494ba4395c76a00dcdede0778abcaec8cd1c5f01502085cc0683",
+    "mixed-legacy-v3.json": "780c13642c848a3a99523f36294467372b1a46cd4a0dbdbbca61dc9dbd149317",
+    "mixed-v3-v4.json": "cc1f4a6cdde486d5a33353a92db68a756e15f24c5478aea9f12f0edbdc703582",
+    "responsive-widescreen.json": "26a0867258ba4adbe33a4b5e1b9753daa2c281e303ebbf343195d841739b5d03",
+    "unicode-roundtrip.json": "b55883206acc722ae55f8714ac7fa0d340b90098109729888fbbfccd98c805b4",
+    "v3-container.json": "2d00068affbfeb231f878ea47939e372c2ea2743424149887e064bd9e6719182",
+    "v4-atomic.json": "f14c8fcdccb00c624b1a01b4d96296380484130bf8a406d0b467566b541d4415"
+  }
+}

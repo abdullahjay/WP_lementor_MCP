@@ -1,0 +1,109 @@
+{
+  "_provenance": {
+    "fixture": "v4-atomic",
+    "covers": "e-flexbox / e-heading / e-button, nested typed props, local styles array",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v4-pro",
+    "sourcePostId": 5,
+    "sourceUrl": "http://localhost:8081/wp-admin/post.php?post=5&action=elementor",
+    "capturedAt": "2026-08-24T09:43:25+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 5 _elementor_data` (EMCP-008)",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3",
+    "_elementor_page_settings": []
+  },
+  "elements": [
+    {
+      "id": "a7f4eea",
+      "elType": "e-flexbox",
+      "settings": {
+        "classes": { "$$type": "classes", "value": ["e-a7f4eea-c96ec15"] }
+      },
+      "elements": [
+        {
+          "id": "74f5254",
+          "elType": "widget",
+          "settings": {
+            "title": {
+              "$$type": "html-v3",
+              "value": { "content": { "$$type": "string", "value": "Buil faster" }, "children": [] }
+            },
+            "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+          },
+          "elements": [],
+          "widgetType": "e-heading",
+          "styles": [],
+          "interactions": [],
+          "editor_settings": [],
+          "version": "0.0"
+        },
+        {
+          "id": "98acb61",
+          "elType": "widget",
+          "settings": {
+            "classes": { "$$type": "classes", "value": ["e-98acb61-b9f102d"] },
+            "text": {
+              "$$type": "html-v3",
+              "value": { "content": { "$$type": "string", "value": "Get started" }, "children": [] }
+            },
+            "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+          },
+          "elements": [],
+          "widgetType": "e-button",
+          "styles": {
+            "e-98acb61-b9f102d": {
+              "id": "e-98acb61-b9f102d",
+              "label": "local",
+              "type": "class",
+              "variants": [
+                {
+                  "meta": { "breakpoint": "desktop", "state": null },
+                  "props": {
+                    "font-family": { "$$type": "font-family", "value": "Poppins" },
+                    "font-weight": { "$$type": "string", "value": "500" },
+                    "font-size": { "$$type": "size", "value": { "size": 15, "unit": "px" } },
+                    "color": { "$$type": "color", "value": "#ffffff" },
+                    "background": {
+                      "$$type": "background",
+                      "value": { "color": { "$$type": "color", "value": "#000000" } }
+                    }
+                  },
+                  "custom_css": null
+                }
+              ]
+            }
+          },
+          "interactions": [],
+          "editor_settings": [],
+          "version": "0.0"
+        }
+      ],
+      "isInner": false,
+      "styles": {
+        "e-a7f4eea-c96ec15": {
+          "id": "e-a7f4eea-c96ec15",
+          "label": "local",
+          "type": "class",
+          "variants": [
+            {
+              "meta": { "breakpoint": "desktop", "state": null },
+              "props": {
+                "flex-direction": { "$$type": "string", "value": "column" },
+                "gap": { "$$type": "size", "value": { "size": 10, "unit": "px" } }
+              },
+              "custom_css": null
+            }
+          ]
+        }
+      },
+      "interactions": [],
+      "editor_settings": [],
+      "version": "0.0"
+    }
+  ]
+}

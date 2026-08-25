@@ -211,6 +211,7 @@ The compiler is **pure and synchronous** — no network. Everything it needs abo
 
 - **v3:** flat `key → value`, responsive via `_tablet` / `_mobile` key suffixes, styling inline in `settings`.
 - **v4:** typed props, **which nest** — a heading title is `{"$$type":"html-v3","value":{"content":{"$$type":"string","value":"…"},"children":[]}}`, not a flat scalar. Styling goes in the node's local `styles` array with responsive and pseudo-state variants. Nodes carry `version`.
+- **Empty is `[]`, not `{}`.** An element or widget with no customized `settings`, `styles`, `interactions`, or `editor_settings` yet serializes those fields as an empty array — JSON `[]`, not `{}`. PHP's array-vs-associative-array-to-JSON behavior leaking through. A parser that assumes these fields are always objects (e.g. `Object.keys(node.settings)`) throws or misbehaves on any freshly-inserted, uncustomized element — which is the common case for a widget just dragged in, not an edge case. Confirmed live (EMCP-008, `v4-atomic` fixture) on a freshly-placed `e-heading`/`e-button` before any content or styling was set.
 
 A compiler that assumes flat `{$$type, value}` scalars drops content silently. This is the single most likely v4 bug and gets its own fixture.
 
@@ -279,7 +280,7 @@ At the depth limit a node emits `{ "id": …, "type": …, "truncated": 5 }`.
 
 ## 6. Plugin REST contract
 
-Base: `/wp-json/emcp/v1`. Versioned in the path; the server declares a minimum plugin version and fails loudly on mismatch at connect time.
+Base: `/wp-json/emcp/v1`. Versioned in the path; the server declares a minimum plugin version and fails loudly on mismatch at connect time. **Implemented (EMCP-010):** `server/src/wp/contract.ts`'s `MINIMUM_PLUGIN_VERSION` (currently `0.1.0`), checked against `GET /site`'s `plugin_version` on every call that reaches the plugin — there's no persistent connection to gate once under MCP 2026-07-28 (§3), so this is the closest equivalent "connect time" this transport has. A mismatch throws `PluginVersionMismatchError`, surfaced by tools as `isError: true` with both versions named in the message.
 
 Every route has a real permission callback. Cookie-authenticated requests are rejected outright (CSRF). JSON content type enforced.
 
@@ -321,6 +322,32 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 ```
 
 Auth: `Authorization` header required — absence is treated as cookie authentication and rejected with `401 emcp_cookie_auth_rejected` regardless of whether a valid nonce would otherwise pass WordPress's own cookie-auth check (solution.md §9.7's "rejected outright"). A present-but-insufficient-capability user gets `403 emcp_forbidden`. Verified live against both sandboxes with Application Passwords over HTTP + `WP_ENVIRONMENT_TYPE=local` (`CLAUDE.md`).
+
+**`GET /registry/snapshot` — implemented (EMCP-017).** Same auth as `GET /site` (`Capabilities::can_read`, shared between both routes). Response shape:
+
+```jsonc
+{
+  "elementor_version": "4.2.3",
+  "plugin_version": "0.1.0",
+  "widget_count": 149,
+  "widgets": [
+    {
+      "name": "e-heading",
+      "title": "Heading",
+      "categories": ["v4-elements"],
+      "keywords": ["heading", "title", "text"],
+      "controls": {
+        "<control_name>": { "type": "…", "label": "…", "default": …, "options": {…}, "condition": {…}, "conditions": {…} }
+        // layout-only control types (section/tab/divider/heading/popover_toggle)
+        // are omitted — they carry no settable value
+      }
+    }
+    // sorted by name — deterministic, not registration order
+  ]
+}
+```
+
+Forces each returned widget's control stack via `get_controls()` (§6.2) — this endpoint's whole job is the full schema, unlike `list_widgets` (§7, EMCP-027), which must never do this across the registry. Registration itself is Elementor's own lazy `get_widget_types()` → `init_widgets()` path (verified against Elementor 4.2.3's actual source, not assumed) — confirmed live to correctly reach 149 widgets on `wp-v4-pro` vs. 141 on `wp-v3-free`, the difference being exactly the eight V4 atomic (`e-`-prefixed) widgets, matching the `e-` detection rule in §5.2/`CLAUDE.md`. **Open item, not yet resolved:** whether Elementor Pro's *own* widget registration needs anything beyond this is unverified — neither sandbox has Pro installed. Revisit once the zip is supplied rather than guessing now.
 
 ### 6.1 Why the plugin stays thin
 

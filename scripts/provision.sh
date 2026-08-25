@@ -85,6 +85,14 @@ provision_site() {
       --skip-email
   fi
 
+  echo "--- $site: permalinks ---"
+  # Fresh WordPress defaults to Plain permalinks, under which /wp-json/...
+  # 301-redirects instead of resolving (CLAUDE.md) — every REST client this
+  # project writes, starting with EMCP-007, expects clean /wp-json/ paths to
+  # just work. Idempotent: setting the same structure twice is a no-op.
+  wp "$wpcli" rewrite structure '/%postname%/' --hard
+  wp "$wpcli" rewrite flush --hard
+
   echo "--- $site: Elementor (Free) ---"
   if wp "$wpcli" plugin is-installed elementor 2>/dev/null; then
     wp "$wpcli" plugin activate elementor

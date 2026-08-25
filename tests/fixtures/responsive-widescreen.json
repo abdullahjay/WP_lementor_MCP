@@ -1,0 +1,78 @@
+{
+  "_provenance": {
+    "fixture": "responsive-widescreen",
+    "covers": "A local styles array with a widescreen breakpoint variant alongside desktop/tablet/mobile — widescreen is the one breakpoint that is min-width, not max-width (Blueprints.md §2.9)",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v4-pro",
+    "sourcePostId": 5,
+    "sourceUrl": "http://localhost:8081/wp-admin/post.php?post=5&action=elementor",
+    "capturedAt": "2026-08-24T11:09:56+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 5 _elementor_data` (EMCP-008). Widescreen had to be added to Site Settings -> Layout -> Breakpoints first — it is not in the active set by default on either sandbox.",
+    "directionNote": "The raw _elementor_data here only names the breakpoint (\"widescreen\"); it does not itself say min-width vs max-width. That comes from Elementor's Breakpoints_Manager, already confirmed live in EMCP-004's GET /site capture: widescreen direction=\"min\", every other breakpoint direction=\"max\". A DSL compiler consuming this fixture needs both this element shape AND that direction metadata to invert widescreen correctly.",
+    "extractionNote": "This widget was one of five top-level elements on the source page (shared with the unicode-roundtrip and mixed-v3-v4 fixtures). Extracted here in isolation, now carrying local styles it didn't have when the unicode-roundtrip fixture was captured from the same element.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "23bd263",
+      "elType": "widget",
+      "settings": {
+        "classes": { "$$type": "classes", "value": ["e-23bd263-b529f07"] },
+        "paragraph": {
+          "$$type": "html-v3",
+          "value": {
+            "content": {
+              "$$type": "string",
+              "value": "\"Design\" — reimagined. مرحبا بالعالم / 你好世界"
+            },
+            "children": []
+          }
+        },
+        "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+      },
+      "elements": [],
+      "widgetType": "e-paragraph",
+      "styles": {
+        "e-23bd263-b529f07": {
+          "id": "e-23bd263-b529f07",
+          "label": "local",
+          "type": "class",
+          "variants": [
+            {
+              "meta": { "breakpoint": "widescreen", "state": null },
+              "props": {
+                "font-family": { "$$type": "font-family", "value": "Poppins" },
+                "font-size": { "$$type": "size", "value": { "size": 15, "unit": "px" } }
+              },
+              "custom_css": null
+            },
+            {
+              "meta": { "breakpoint": "desktop", "state": null },
+              "props": { "font-size": { "$$type": "size", "value": { "size": 14, "unit": "px" } } },
+              "custom_css": null
+            },
+            {
+              "meta": { "breakpoint": "tablet", "state": null },
+              "props": { "font-size": { "$$type": "size", "value": { "size": 13, "unit": "px" } } },
+              "custom_css": null
+            },
+            {
+              "meta": { "breakpoint": "mobile", "state": null },
+              "props": { "font-size": { "$$type": "size", "value": { "size": 12, "unit": "px" } } },
+              "custom_css": null
+            }
+          ]
+        }
+      },
+      "interactions": [],
+      "editor_settings": [],
+      "version": "0.0"
+    }
+  ]
+}
