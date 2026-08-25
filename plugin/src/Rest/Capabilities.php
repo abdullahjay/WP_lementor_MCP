@@ -22,7 +22,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Capabilities {
 
-	public static function can_read_site( \WP_REST_Request $request ): bool|\WP_Error {
+	public static function can_read( \WP_REST_Request $request ): bool|\WP_Error {
 		if ( '' === (string) $request->get_header( 'authorization' ) ) {
 			return new \WP_Error(
 				'emcp_cookie_auth_rejected',

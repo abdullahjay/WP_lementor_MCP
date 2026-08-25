@@ -8,9 +8,11 @@
     "test:server": "npm --prefix server run verify:unit",
     "test:php": "composer --working-dir=plugin test",
     "verify:unit": "npm run test && npm run test:server && npm run test:php",
-    "verify:live": "sh scripts/verify-live.sh"
+    "verify:live": "sh scripts/verify-live.sh",
+    "check:registry-drift": "tsx scripts/check-registry-drift.ts"
   },
   "devDependencies": {
+    "tsx": "^4.23.12",
     "vitest": "^4.1.11"
   }
 }

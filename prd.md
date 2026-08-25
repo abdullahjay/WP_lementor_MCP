@@ -197,7 +197,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - No tool can mutate the registry
   - Slugs are not sequential or guessable
 
-#### [ ] Task 15: Credential encryption
+#### [x] Task 15: Credential encryption
 - **ID:** EMCP-015
 - **Depends:** EMCP-013
 - **Verify:** unit
@@ -207,7 +207,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Credentials never logged, never in tool output, never in ledger arguments
   - A test asserts a credential value cannot reach any log sink
 
-#### [ ] Task 16: Grant resolution
+#### [x] Task 16: Grant resolution
 - **ID:** EMCP-016
 - **Depends:** EMCP-014
 - **Verify:** unit
@@ -217,7 +217,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Missing grant returns 403 before any outbound request
   - A test requests a site the subject lacks and asserts no outbound call is made
 
-#### [ ] Task 17: `GET /registry/snapshot`
+#### [x] Task 17: `GET /registry/snapshot`
 - **ID:** EMCP-017
 - **Depends:** EMCP-003
 - **Verify:** live
@@ -227,7 +227,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Forces control-stack initialisation; bootstraps Elementor context explicitly so Pro and third-party widgets are visible
   - Reports the materially different registries of the two sandboxes
 
-#### [ ] Task 18: Committed snapshots and drift check
+#### [x] Task 18: Committed snapshots and drift check
 - **ID:** EMCP-018
 - **Depends:** EMCP-017, EMCP-011
 - **Verify:** unit
@@ -239,7 +239,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
 
 ### READ LAYER
 
-#### [ ] Task 19: Generation detection
+#### [x] Task 19: Generation detection
 - **ID:** EMCP-019
 - **Depends:** EMCP-009
 - **Verify:** unit
@@ -249,7 +249,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Correct across all fixtures including both mixed ones
   - A test proves an `e-heading` is not misrouted into the V3 widget path
 
-#### [ ] Task 20: Normalized digest shape
+#### [x] Task 20: Normalized digest shape
 - **ID:** EMCP-020
 - **Depends:** EMCP-019
 - **Verify:** unit
@@ -259,7 +259,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Nested-widget children (Nested Tabs) traversed correctly
   - Fixture assertions for legacy, v3, v4 and both mixed cases
 
-#### [ ] Task 21: Label resolution and sanitisation
+#### [x] Task 21: Label resolution and sanitisation
 - **ID:** EMCP-021
 - **Depends:** EMCP-020
 - **Verify:** unit
@@ -269,7 +269,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Markup, newlines and zero-width characters stripped; truncated to 40 characters
   - A fixture containing instruction-shaped text is neutralised rather than passed through
 
-#### [ ] Task 22: Depth limiting
+#### [x] Task 22: Depth limiting
 - **ID:** EMCP-022
 - **Depends:** EMCP-020
 - **Verify:** unit
@@ -278,13 +278,13 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - `truncated` counts correct against the `deep-nested` fixture
   - Depth limit configurable per call with a sane default
 
-#### [ ] Task 23: `list_pages`
+#### [x] Task 23: `list_pages`
 - **ID:** EMCP-023
 - **Depends:** EMCP-007
 - **Verify:** live
 - **File:** `server/src/tools/listPages.ts`, `plugin/src/Rest/DocumentsController.php`
 
-#### [ ] Task 24: `get_page_structure`
+#### [x] Task 24: `get_page_structure`
 - **ID:** EMCP-024
 - **Depends:** EMCP-022, EMCP-023
 - **Verify:** live
@@ -294,13 +294,13 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Returns element IDs and `document_hash`
   - Element IDs are stable across saves
 
-#### [ ] Task 25: `get_element`
+#### [x] Task 25: `get_element`
 - **ID:** EMCP-025
 - **Depends:** EMCP-024
 - **Verify:** live
 - **File:** `server/src/tools/getElement.ts`
 
-#### [ ] Task 26: `find_elements`
+#### [x] Task 26: `find_elements`
 - **ID:** EMCP-026
 - **Depends:** EMCP-024
 - **Verify:** live
@@ -309,7 +309,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Search by widget type and by text content
   - Returns enough per match to skip a follow-up `get_element` in the common case
 
-#### [ ] Task 27: `list_widgets`
+#### [x] Task 27: `list_widgets`
 - **ID:** EMCP-027
 - **Depends:** EMCP-017
 - **Verify:** live
@@ -318,7 +318,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Never calls `get_controls()` across the registry — a test asserts the cost
   - Returns different vocabularies from the two sandboxes
 
-#### [ ] Task 28: `describe_widget`
+#### [x] Task 28: `describe_widget`
 - **ID:** EMCP-028
 - **Depends:** EMCP-027
 - **Verify:** live

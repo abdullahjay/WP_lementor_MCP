@@ -23,7 +23,57 @@ final class RestController {
 			[
 				'methods'             => \WP_REST_Server::READABLE,
 				'callback'            => [ new SiteController(), 'handle' ],
-				'permission_callback' => [ Capabilities::class, 'can_read_site' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/registry/snapshot',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new RegistryController(), 'handle' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/documents',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new DocumentsController(), 'handle' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/documents/(?P<id>\d+)',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new DocumentsController(), 'show' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/widgets',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new WidgetsController(), 'handle' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/widgets/(?P<type>[\w-]+)',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new WidgetsController(), 'show' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
 			]
 		);
 	}

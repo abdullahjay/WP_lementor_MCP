@@ -323,6 +323,32 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 
 Auth: `Authorization` header required — absence is treated as cookie authentication and rejected with `401 emcp_cookie_auth_rejected` regardless of whether a valid nonce would otherwise pass WordPress's own cookie-auth check (solution.md §9.7's "rejected outright"). A present-but-insufficient-capability user gets `403 emcp_forbidden`. Verified live against both sandboxes with Application Passwords over HTTP + `WP_ENVIRONMENT_TYPE=local` (`CLAUDE.md`).
 
+**`GET /registry/snapshot` — implemented (EMCP-017).** Same auth as `GET /site` (`Capabilities::can_read`, shared between both routes). Response shape:
+
+```jsonc
+{
+  "elementor_version": "4.2.3",
+  "plugin_version": "0.1.0",
+  "widget_count": 149,
+  "widgets": [
+    {
+      "name": "e-heading",
+      "title": "Heading",
+      "categories": ["v4-elements"],
+      "keywords": ["heading", "title", "text"],
+      "controls": {
+        "<control_name>": { "type": "…", "label": "…", "default": …, "options": {…}, "condition": {…}, "conditions": {…} }
+        // layout-only control types (section/tab/divider/heading/popover_toggle)
+        // are omitted — they carry no settable value
+      }
+    }
+    // sorted by name — deterministic, not registration order
+  ]
+}
+```
+
+Forces each returned widget's control stack via `get_controls()` (§6.2) — this endpoint's whole job is the full schema, unlike `list_widgets` (§7, EMCP-027), which must never do this across the registry. Registration itself is Elementor's own lazy `get_widget_types()` → `init_widgets()` path (verified against Elementor 4.2.3's actual source, not assumed) — confirmed live to correctly reach 149 widgets on `wp-v4-pro` vs. 141 on `wp-v3-free`, the difference being exactly the eight V4 atomic (`e-`-prefixed) widgets, matching the `e-` detection rule in §5.2/`CLAUDE.md`. **Open item, not yet resolved:** whether Elementor Pro's *own* widget registration needs anything beyond this is unverified — neither sandbox has Pro installed. Revisit once the zip is supplied rather than guessing now.
+
 ### 6.1 Why the plugin stays thin
 
 It owns only what must run in PHP: registry introspection, Document API writes, kit and global-class reads, media, preview tokens, cache invalidation, and snapshot storage. No DSL, no compilation, no MCP awareness.

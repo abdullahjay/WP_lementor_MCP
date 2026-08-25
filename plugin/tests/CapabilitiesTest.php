@@ -10,7 +10,7 @@ use WP_Error;
 use WP_REST_Request;
 
 /**
- * Real assertions against Capabilities::can_read_site() — the security-
+ * Real assertions against Capabilities::can_read() — the security-
  * relevant gate documented at length in Capabilities.php's own docblock
  * (solution.md §9.7's "rejected outright", not just nonce-checked).
  */
@@ -23,7 +23,7 @@ final class CapabilitiesTest extends TestCase {
 	public function test_rejects_missing_authorization_header(): void {
 		$request = new WP_REST_Request( [] );
 
-		$result = Capabilities::can_read_site( $request );
+		$result = Capabilities::can_read( $request );
 
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'emcp_cookie_auth_rejected', $result->get_error_code() );
@@ -33,7 +33,7 @@ final class CapabilitiesTest extends TestCase {
 	public function test_rejects_empty_authorization_header(): void {
 		$request = new WP_REST_Request( [ 'authorization' => '' ] );
 
-		$result = Capabilities::can_read_site( $request );
+		$result = Capabilities::can_read( $request );
 
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'emcp_cookie_auth_rejected', $result->get_error_code() );
@@ -43,7 +43,7 @@ final class CapabilitiesTest extends TestCase {
 		$GLOBALS['emcp_test_current_user_can'] = false;
 		$request = new WP_REST_Request( [ 'authorization' => 'Basic dGVzdDp0ZXN0' ] );
 
-		$result = Capabilities::can_read_site( $request );
+		$result = Capabilities::can_read( $request );
 
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'emcp_forbidden', $result->get_error_code() );
@@ -54,7 +54,7 @@ final class CapabilitiesTest extends TestCase {
 		$GLOBALS['emcp_test_current_user_can'] = true;
 		$request = new WP_REST_Request( [ 'authorization' => 'Basic dGVzdDp0ZXN0' ] );
 
-		$result = Capabilities::can_read_site( $request );
+		$result = Capabilities::can_read( $request );
 
 		self::assertTrue( $result );
 	}
@@ -67,6 +67,6 @@ final class CapabilitiesTest extends TestCase {
 		$GLOBALS['emcp_test_current_user_can'] = true;
 		$request = new WP_REST_Request( [ 'authorization' => 'Basic dGVzdDp0ZXN0' ] );
 
-		self::assertTrue( Capabilities::can_read_site( $request ) );
+		self::assertTrue( Capabilities::can_read( $request ) );
 	}
 }

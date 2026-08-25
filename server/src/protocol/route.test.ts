@@ -80,7 +80,15 @@ describe('MCP protocol route', () => {
     expect(json.result.resultType).toBe('tools/list');
     expect(json.result.cacheScope).toBe('private');
     expect(typeof json.result.ttlMs).toBe('number');
-    expect(json.result.tools.map((tool) => tool.name)).toEqual(['get_site_info']);
+    expect(json.result.tools.map((tool) => tool.name)).toEqual([
+      'describe_widget',
+      'find_elements',
+      'get_element',
+      'get_page_structure',
+      'get_site_info',
+      'list_pages',
+      'list_widgets',
+    ]);
   });
 
   it('returns 404 + -32601 via tools/call for an unknown tool name', async () => {

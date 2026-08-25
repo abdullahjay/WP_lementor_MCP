@@ -194,6 +194,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CREDENTIALS_KEK: ${CREDENTIALS_KEK}
     ports:
       - "${MCP_PORT}:3000"
     networks: [wp_net, data_net, render_net]
@@ -233,6 +234,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CREDENTIALS_KEK: ${CREDENTIALS_KEK}
     volumes:
       - .:/workspace
     working_dir: /workspace

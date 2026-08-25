@@ -65,7 +65,14 @@ export const credentials = pgTable(
       .references(() => sites.id, { onDelete: 'cascade' }),
     // Envelope encryption, per-site DEK (solution.md §9.4) — the KEK lives
     // outside this database entirely, in a KMS the renderer has no grant to.
+    // Both columns are self-contained base64 blobs (iv || ciphertext ||
+    // authTag from AES-256-GCM) — encryptedDek is the DEK encrypted under
+    // the KEK; encryptedSecret is the actual credential (e.g. a WordPress
+    // Application Password) encrypted under the DEK. Neither column, nor
+    // any decrypted value derived from them, may ever reach a log sink
+    // (EMCP-015) — enforced in server/src/credentials/, not here.
     encryptedDek: text('encrypted_dek').notNull(),
+    encryptedSecret: text('encrypted_secret').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }),
   },
