@@ -1,0 +1,93 @@
+{
+  "_provenance": {
+    "fixture": "mixed-legacy-v3",
+    "covers": "Containers added to a legacy section/column page — per-node detection on one document",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v3-free",
+    "sourcePostId": 2,
+    "sourceUrl": "http://localhost:8082/wp-admin/post.php?post=2&action=elementor",
+    "capturedAt": "2026-08-24T10:13:00+00:00",
+    "capturedVia": "Same save as `v3-container` (EMCP-008) — the legacy section from `legacy-section-column` was still present on this page when the container was added, so this fixture reuses that exact page state verbatim rather than being rebuilt separately.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "9c2bab0",
+      "elType": "section",
+      "settings": { "structure": "20" },
+      "elements": [
+        {
+          "id": "e25c035",
+          "elType": "column",
+          "settings": { "_column_size": 50, "_inline_size": null },
+          "elements": [
+            {
+              "id": "fb1a12a",
+              "elType": "widget",
+              "settings": {
+                "title": "Build it on V3 / Free",
+                "typography_typography": "custom",
+                "typography_font_family": "Poppins",
+                "typography_font_weight": "600",
+                "title_color": "#000000"
+              },
+              "elements": [],
+              "widgetType": "heading"
+            },
+            {
+              "id": "102c3c7",
+              "elType": "widget",
+              "settings": {
+                "text": "Get started",
+                "typography_typography": "custom",
+                "typography_font_family": "Poppins",
+                "typography_font_size": { "unit": "px", "size": 16, "sizes": [] },
+                "typography_font_weight": "500",
+                "background_color": "#1A5A22"
+              },
+              "elements": [],
+              "widgetType": "button"
+            }
+          ],
+          "isInner": false
+        },
+        {
+          "id": "9c6a05d",
+          "elType": "column",
+          "settings": { "_column_size": 50, "_inline_size": null },
+          "elements": [],
+          "isInner": false
+        }
+      ],
+      "isInner": false
+    },
+    {
+      "id": "6268511",
+      "elType": "container",
+      "settings": { "flex_direction": "column" },
+      "elements": [
+        {
+          "id": "1da6bf7",
+          "elType": "widget",
+          "settings": { "title": "Add Your Heading Text Here", "title_color": "#000000" },
+          "elements": [],
+          "widgetType": "heading"
+        },
+        {
+          "id": "37449cc",
+          "elType": "widget",
+          "settings": { "align": "start", "primary_color": "#000000" },
+          "elements": [],
+          "widgetType": "icon"
+        }
+      ],
+      "isInner": false
+    }
+  ]
+}

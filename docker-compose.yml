@@ -10,8 +10,8 @@
 # and scripts/test-renderer-isolation.sh, which asserts this instead of
 # assuming it.
 #
-# mcp and renderer run placeholder commands until EMCP-005 and EMCP-031 land;
-# this file's job is the topology, not the application code.
+# `mcp` builds and runs the real server/ (EMCP-012). `renderer` still runs a
+# placeholder command until EMCP-031 lands.
 
 services:
 
@@ -177,22 +177,28 @@ services:
       retries: 10
 
   mcp:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: docker/mcp/Dockerfile
     restart: unless-stopped
-    # Placeholder until EMCP-005 (Node server skeleton) exists. Proves the
-    # topology now; gets replaced by a real Dockerfile building server/.
-    command: >
-      node -e "
-      require('http').createServer((req, res) => {
-        res.writeHead(200, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({ status: 'placeholder', task: 'EMCP-005 not yet implemented' }));
-      }).listen(3000, () => console.log('mcp placeholder listening on 3000'));
-      "
+    environment:
+      MCP_PORT: 3000
+      MCP_HEADER_AUTH_TOKEN: ${MCP_HEADER_AUTH_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL}
+      # One connector = one site (solution.md §3) — defaults to wp-v4-pro.
+      # Point these at wp-v3-free instead to test against that sandbox.
+      WP_BASE_URL: ${WP_BASE_URL}
+      WP_AUTH_USER: ${WP_AUTH_USER}
+      WP_AUTH_APP_PASSWORD: ${WP_AUTH_APP_PASSWORD}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${MCP_PORT}:3000"
     networks: [wp_net, data_net, render_net]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/healthz', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -222,6 +228,11 @@ services:
     build:
       context: ./docker/dev
     restart: unless-stopped
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - .:/workspace
     working_dir: /workspace

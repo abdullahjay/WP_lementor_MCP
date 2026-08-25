@@ -96,7 +96,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Structured logging with a correlation ID generated per request
   - No `any`, no `@ts-ignore`
 
-#### [ ] Task 6: MCP protocol conformance
+#### [x] Task 6: MCP protocol conformance
 - **ID:** EMCP-006
 - **Depends:** EMCP-005
 - **Verify:** unit
@@ -109,7 +109,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Unknown method returns `404` + `-32601`; GET/DELETE return `405`
   - Error channels per `Blueprints.md` §8.1, including auth failures as **HTTP 401**, never `isError`
 
-#### [ ] Task 7: First tool — `get_site_info`
+#### [x] Task 7: First tool — `get_site_info`
 - **ID:** EMCP-007
 - **Depends:** EMCP-004, EMCP-006
 - **Verify:** live
@@ -120,7 +120,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - `outputSchema` declared; deterministic ordering; `cacheScope: private`
   - Description states when to use and when not to
 
-#### [ ] Task 8: Capture golden fixtures ⚠️
+#### [x] Task 8: Capture golden fixtures ⚠️
 - **ID:** EMCP-008
 - **Depends:** EMCP-002
 - **Verify:** human
@@ -132,7 +132,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - **Any discrepancy is a blueprint bug** — record it in `progress.md` and mark NEEDS-REVIEW. Corrections mean this task succeeded, not failed
   - Do not adjust code to match a fixture until a human has confirmed which is wrong
 
-#### [ ] Task 9: Fixture immutability guard
+#### [x] Task 9: Fixture immutability guard
 - **ID:** EMCP-009
 - **Depends:** EMCP-008
 - **Verify:** unit
@@ -142,7 +142,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Fixtures hash-checked; suite fails if any changed without a signed update
   - A test proves the guard actually fires on a modified fixture
 
-#### [ ] Task 10: Freeze plugin REST contract v1
+#### [x] Task 10: Freeze plugin REST contract v1
 - **ID:** EMCP-010
 - **Depends:** EMCP-004
 - **Verify:** unit
@@ -153,7 +153,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Server declares a minimum plugin version; `get_site_info` reports the installed version
   - Mismatch fails loudly at connect time with an actionable message
 
-#### [ ] Task 11: Verification harness split
+#### [x] Task 11: Verification harness split
 - **ID:** EMCP-011
 - **Depends:** EMCP-005
 - **Verify:** unit
@@ -165,7 +165,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Both emit machine-readable pass/fail
   - PHP tests runnable via PHPUnit
 
-#### [ ] Task 12: Local development documentation
+#### [x] Task 12: Local development documentation
 - **ID:** EMCP-012
 - **Depends:** EMCP-001, EMCP-011
 - **Verify:** human
@@ -177,7 +177,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
 
 ### REGISTRY AND CREDENTIALS
 
-#### [ ] Task 13: Database schema and migrations
+#### [x] Task 13: Database schema and migrations
 - **ID:** EMCP-013
 - **Depends:** EMCP-005
 - **Verify:** unit
@@ -187,7 +187,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Every table holding site-scoped data carries the site in its index
   - Migrations run forward and are reversible
 
-#### [ ] Task 14: Site registry
+#### [x] Task 14: Site registry
 - **ID:** EMCP-014
 - **Depends:** EMCP-013
 - **Verify:** unit

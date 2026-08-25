@@ -202,6 +202,8 @@ Three corrections that a compiler gets silently wrong otherwise:
 
 **Elements carry a `version`**, implying per-element schema migration. We need a concept for that; currently we have none.
 
+**Empty is `[]`, not `{}`.** `settings`, `styles`, `interactions`, and `editor_settings` all serialize as an empty array — not an empty object — on any element nobody has customized yet. This isn't a hypothetical: it's what a widget looks like the instant it's dragged in, before a model or a human has set anything on it. A compiler or digest reader written against the object-shaped examples above, without first checking `Array.isArray()`, breaks on exactly the elements it's most likely to encounter first.
+
 ### 5.4 Draft-first is two different write paths
 
 **Saving a published page as a draft in Elementor does not create a draft — it creates an autosave revision.** `_elementor_data` on the live post is untouched; draft content lives on the autosave post.

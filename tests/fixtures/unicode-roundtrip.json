@@ -1,0 +1,47 @@
+{
+  "_provenance": {
+    "fixture": "unicode-roundtrip",
+    "covers": "Em-dashes, Arabic (RTL), and CJK text surviving through Elementor's storage as UTF-8-escaped JSON",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v4-pro",
+    "sourcePostId": 5,
+    "sourceUrl": "http://localhost:8081/wp-admin/post.php?post=5&action=elementor",
+    "capturedAt": "2026-08-24T10:59:31+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 5 _elementor_data` (EMCP-008)",
+    "contentNote": "Typed content was: \"Design\" — reimagined. مرحبا بالعالم / 你好世界. Uses straight quotes, not curly ones — covers em-dash + Arabic RTL + CJK, but not curly-quote punctuation specifically.",
+    "extractionNote": "This widget was one of five top-level elements on the source page — the other four are the mixed-v3-v4 fixture's content, still present on the same page. Extracted here in isolation.",
+    "note": "This is the raw-storage half only (real content survives Elementor's own save/read cycle intact). The snapshot -> rollback -> re-read round-trip this fixture is ultimately meant to exercise (solution.md §11, Blueprints.md §6.6's wp_slash/wp_json_encode concern) doesn't exist yet — that's EMCP-037.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "23bd263",
+      "elType": "widget",
+      "settings": {
+        "paragraph": {
+          "$$type": "html-v3",
+          "value": {
+            "content": {
+              "$$type": "string",
+              "value": "\"Design\" — reimagined. مرحبا بالعالم / 你好世界"
+            },
+            "children": []
+          }
+        },
+        "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+      },
+      "elements": [],
+      "widgetType": "e-paragraph",
+      "styles": [],
+      "interactions": [],
+      "editor_settings": [],
+      "version": "0.0"
+    }
+  ]
+}

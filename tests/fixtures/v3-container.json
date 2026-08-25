@@ -1,0 +1,44 @@
+{
+  "_provenance": {
+    "fixture": "v3-container",
+    "covers": "Modern flexbox: elType container, flat widget settings (heading, icon)",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v3-free",
+    "sourcePostId": 2,
+    "sourceUrl": "http://localhost:8082/wp-admin/post.php?post=2&action=elementor",
+    "capturedAt": "2026-08-24T10:13:00+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 2 _elementor_data` (EMCP-008)",
+    "extractionNote": "This element was one of two top-level elements on the source page — the other being the legacy section/column from the `legacy-section-column` fixture, still present on the same page. Extracted here in isolation; the full two-element page is reused verbatim for the `mixed-legacy-v3` fixture rather than being rebuilt.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "6268511",
+      "elType": "container",
+      "settings": { "flex_direction": "column" },
+      "elements": [
+        {
+          "id": "1da6bf7",
+          "elType": "widget",
+          "settings": { "title": "Add Your Heading Text Here", "title_color": "#000000" },
+          "elements": [],
+          "widgetType": "heading"
+        },
+        {
+          "id": "37449cc",
+          "elType": "widget",
+          "settings": { "align": "start", "primary_color": "#000000" },
+          "elements": [],
+          "widgetType": "icon"
+        }
+      ],
+      "isInner": false
+    }
+  ]
+}

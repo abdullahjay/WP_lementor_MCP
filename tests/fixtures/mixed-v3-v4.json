@@ -1,0 +1,72 @@
+{
+  "_provenance": {
+    "fixture": "mixed-v3-v4",
+    "covers": "Per-node detection within one shared parent: a V3 `container` directly parenting both legacy-flat widgets and V4 atomic (`e-`) widgets as siblings",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v4-pro",
+    "sourcePostId": 5,
+    "sourceUrl": "http://localhost:8081/wp-admin/post.php?post=5&action=elementor",
+    "capturedAt": "2026-08-24T10:30:10+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 5 _elementor_data` (EMCP-008)",
+    "setupNote": "wp-v4-pro has both `container` and `e_atomic_elements` experiments active by default, but the editor's 'Add Section' always defaults to atomic e-flexbox while both are active. To get a classic V3 container here, e_atomic_elements/e_opt_in_v4/e_opt_in_v4_page were deactivated just long enough to add the container, then re-activated before adding the e-heading/e-paragraph widgets that ended up nested inside that same container (Elementor allowed this — atomic content widgets are not restricted to atomic layout parents).",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "b562e5e",
+      "elType": "container",
+      "settings": { "flex_direction": "column" },
+      "elements": [
+        {
+          "id": "186bf22",
+          "elType": "widget",
+          "settings": { "title": "Add Your Heading Text Here", "title_color": "#000000" },
+          "elements": [],
+          "widgetType": "heading"
+        },
+        {
+          "id": "e41d5bc",
+          "elType": "widget",
+          "settings": { "text": "Click here", "background_color": "#000000" },
+          "elements": [],
+          "widgetType": "button"
+        },
+        {
+          "id": "0b17c4b",
+          "elType": "widget",
+          "settings": {
+            "title": {
+              "$$type": "html-v3",
+              "value": { "content": { "$$type": "string", "value": "Builder Faster" }, "children": [] }
+            },
+            "link": { "$$type": "link", "value": { "isTargetBlank": null } }
+          },
+          "elements": [],
+          "widgetType": "e-heading",
+          "styles": [],
+          "interactions": [],
+          "editor_settings": [],
+          "version": "0.0"
+        },
+        {
+          "id": "1637e99",
+          "elType": "widget",
+          "settings": [],
+          "elements": [],
+          "widgetType": "e-paragraph",
+          "styles": [],
+          "interactions": [],
+          "editor_settings": [],
+          "version": "0.0"
+        }
+      ],
+      "isInner": false
+    }
+  ]
+}

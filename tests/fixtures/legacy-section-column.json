@@ -1,0 +1,72 @@
+{
+  "_provenance": {
+    "fixture": "legacy-section-column",
+    "covers": "Pre-container structure: elType section/column, flat widget settings",
+    "elementorVersion": "4.2.3",
+    "activePlugins": ["elementor", "emcp"],
+    "sandbox": "wp-v3-free",
+    "sourcePostId": 2,
+    "sourceUrl": "http://localhost:8082/wp-admin/post.php?post=2&action=elementor",
+    "capturedAt": "2026-08-24T10:06:38+00:00",
+    "capturedVia": "Built by hand in Elementor's editor (human), captured via `wp post meta get 2 _elementor_data` (EMCP-008)",
+    "setupNote": "The editor only offered Flexbox/Grid for a new section until the 'container' experiment was deactivated on this sandbox (`wp option update elementor_experiment-container inactive`) — that is what unlocks the legacy Section/Column layout picker. Re-activated immediately after capture so later fixtures on this sandbox see the intended V3-container-default state again.",
+    "hash": null
+  },
+  "postMeta": {
+    "_elementor_edit_mode": "builder",
+    "_elementor_template_type": "wp-page",
+    "_elementor_version": "4.2.3"
+  },
+  "elements": [
+    {
+      "id": "9c2bab0",
+      "elType": "section",
+      "settings": { "structure": "20" },
+      "elements": [
+        {
+          "id": "e25c035",
+          "elType": "column",
+          "settings": { "_column_size": 50, "_inline_size": null },
+          "elements": [
+            {
+              "id": "fb1a12a",
+              "elType": "widget",
+              "settings": {
+                "title": "Build it on V3 / Free",
+                "typography_typography": "custom",
+                "typography_font_family": "Poppins",
+                "typography_font_weight": "600",
+                "title_color": "#000000"
+              },
+              "elements": [],
+              "widgetType": "heading"
+            },
+            {
+              "id": "102c3c7",
+              "elType": "widget",
+              "settings": {
+                "text": "Get started",
+                "typography_typography": "custom",
+                "typography_font_family": "Poppins",
+                "typography_font_size": { "unit": "px", "size": 16, "sizes": [] },
+                "typography_font_weight": "500",
+                "background_color": "#1A5A22"
+              },
+              "elements": [],
+              "widgetType": "button"
+            }
+          ],
+          "isInner": false
+        },
+        {
+          "id": "9c6a05d",
+          "elType": "column",
+          "settings": { "_column_size": 50, "_inline_size": null },
+          "elements": [],
+          "isInner": false
+        }
+      ],
+      "isInner": false
+    }
+  ]
+}

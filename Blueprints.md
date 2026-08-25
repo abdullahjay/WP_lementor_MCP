@@ -211,6 +211,7 @@ The compiler is **pure and synchronous** — no network. Everything it needs abo
 
 - **v3:** flat `key → value`, responsive via `_tablet` / `_mobile` key suffixes, styling inline in `settings`.
 - **v4:** typed props, **which nest** — a heading title is `{"$$type":"html-v3","value":{"content":{"$$type":"string","value":"…"},"children":[]}}`, not a flat scalar. Styling goes in the node's local `styles` array with responsive and pseudo-state variants. Nodes carry `version`.
+- **Empty is `[]`, not `{}`.** An element or widget with no customized `settings`, `styles`, `interactions`, or `editor_settings` yet serializes those fields as an empty array — JSON `[]`, not `{}`. PHP's array-vs-associative-array-to-JSON behavior leaking through. A parser that assumes these fields are always objects (e.g. `Object.keys(node.settings)`) throws or misbehaves on any freshly-inserted, uncustomized element — which is the common case for a widget just dragged in, not an edge case. Confirmed live (EMCP-008, `v4-atomic` fixture) on a freshly-placed `e-heading`/`e-button` before any content or styling was set.
 
 A compiler that assumes flat `{$$type, value}` scalars drops content silently. This is the single most likely v4 bug and gets its own fixture.
 
@@ -279,7 +280,7 @@ At the depth limit a node emits `{ "id": …, "type": …, "truncated": 5 }`.
 
 ## 6. Plugin REST contract
 
-Base: `/wp-json/emcp/v1`. Versioned in the path; the server declares a minimum plugin version and fails loudly on mismatch at connect time.
+Base: `/wp-json/emcp/v1`. Versioned in the path; the server declares a minimum plugin version and fails loudly on mismatch at connect time. **Implemented (EMCP-010):** `server/src/wp/contract.ts`'s `MINIMUM_PLUGIN_VERSION` (currently `0.1.0`), checked against `GET /site`'s `plugin_version` on every call that reaches the plugin — there's no persistent connection to gate once under MCP 2026-07-28 (§3), so this is the closest equivalent "connect time" this transport has. A mismatch throws `PluginVersionMismatchError`, surfaced by tools as `isError: true` with both versions named in the message.
 
 Every route has a real permission callback. Cookie-authenticated requests are rejected outright (CSRF). JSON content type enforced.
 

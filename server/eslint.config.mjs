@@ -5,7 +5,7 @@ export default tseslint.config(
     // Not type-checked: it's outside tsconfig.json's `include` on purpose
     // (build config shouldn't compile with the app), and typed rules against
     // ESLint's own default-project fallback produce false positives.
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'eslint.config.mjs'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'drizzle/**', 'eslint.config.mjs', 'vitest.config.ts', 'drizzle.config.ts'],
   },
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -29,6 +29,10 @@ export default tseslint.config(
       // Fastify's idiomatic handler shape is `async (req) => value`, even
       // with no internal await — the framework awaits the returned promise.
       '@typescript-eslint/require-await': 'off',
+      // `const { unwanted: _unwanted, ...rest } = obj` is the idiomatic way
+      // to drop a key while destructuring; the underscore prefix marks it
+      // deliberate.
+      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
     },
   },
 );

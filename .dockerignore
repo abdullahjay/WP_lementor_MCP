@@ -1,0 +1,12 @@
+# Build context is the repo root (docker-compose.yml's mcp service); none
+# of this needs to travel into any image — Dockerfiles run their own
+# npm ci / composer install against the copied package manifests instead.
+node_modules
+**/node_modules
+dist
+**/dist
+vendor
+**/vendor
+.git
+sandboxes/wp-v4-pro/elementor-pro.zip
+*.log
