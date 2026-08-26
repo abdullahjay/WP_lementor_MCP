@@ -1,12 +1,20 @@
 import { JsonRpcErrorCode, JsonRpcMethodError } from './errors.js';
+import { SUPPORTED_PROTOCOL_VERSION } from './meta.js';
 import type { MethodHandler, ToolImplementation } from './types.js';
 
+// Tracks server/package.json's "version" — not read at runtime (no fs/JSON
+// import for one string), so keep the two in sync by hand if either changes.
+const SERVER_VERSION = '0.1.0';
+
 /**
- * Method dispatcher. `tools/list` and `tools/call` ship built in; real tools
- * register themselves via `registerTool()` (EMCP-007+) rather than this file
- * growing a hardcoded tool table. `resultType` is stamped centrally in
- * `dispatch()` so "every result carries it" is a structural guarantee, not
- * per-handler discipline.
+ * Method dispatcher. `ping`, `tools/list`, `tools/call`, and `server/discover`
+ * ship built in; real tools register themselves via `registerTool()`
+ * (EMCP-007+) rather than this file growing a hardcoded tool table.
+ * `resultType` is stamped centrally in `dispatch()` so "every result carries
+ * it" is a structural guarantee, not per-handler discipline — and it is
+ * always the literal `"complete"` (the spec's MRTR enum), never the method
+ * name; an earlier version of this file conflated the two, which happened
+ * to work for hand-written tests but was never actually spec-shaped.
  */
 export class MethodRegistry {
   private readonly handlers = new Map<string, MethodHandler>();
@@ -16,6 +24,14 @@ export class MethodRegistry {
     this.handlers.set('ping', () => ({}));
     this.handlers.set('tools/list', () => this.listTools());
     this.handlers.set('tools/call', (params) => this.callTool(params));
+    // Spec-mandated ("Servers MUST implement server/discover") — a dual-era
+    // client (confirmed live: claude-code/2.1.240) probes with this before
+    // anything else, and falls back to the legacy `initialize` handshake if
+    // it doesn't get a recognized modern response. This server deliberately
+    // implements no `initialize` at all (solution.md §3), so a correct
+    // `server/discover` response is what keeps a real client in modern mode
+    // rather than the only way to reach it.
+    this.handlers.set('server/discover', () => this.discover());
   }
 
   register(method: string, handler: MethodHandler): void {
@@ -42,7 +58,27 @@ export class MethodRegistry {
 
     const result = await handler(params);
 
-    return { ...result, resultType: method };
+    return { ...result, resultType: 'complete' };
+  }
+
+  /**
+   * DiscoverResult shape per
+   * modelcontextprotocol.io/specification/2026-07-28/server/discover —
+   * `resultType` is added by `dispatch()`, not set here, same as every
+   * other handler.
+   */
+  private discover(): Record<string, unknown> {
+    return {
+      supportedVersions: [SUPPORTED_PROTOCOL_VERSION],
+      capabilities: { tools: {} },
+      _meta: {
+        'io.modelcontextprotocol/serverInfo': { name: 'emcp-server', version: SERVER_VERSION },
+      },
+      instructions:
+        'Elementor MCP server. Read Elementor page structure, widgets, and settings via tools/list and tools/call.',
+      ttlMs: 3_600_000,
+      cacheScope: 'public',
+    };
   }
 
   private listTools(): Record<string, unknown> {

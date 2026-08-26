@@ -5,26 +5,38 @@ import { SUPPORTED_PROTOCOL_VERSION } from './meta.js';
 const ORIGINAL_TOKEN = process.env['MCP_HEADER_AUTH_TOKEN'];
 const AUTH_TOKEN = 'test-token';
 
+// Real shape confirmed live against claude-code/2.1.240 (EMCP-006 follow-up):
+// _meta lives inside params with namespaced keys, and Mcp-Name is header-only
+// required for tools/call/resources/read/prompts/get — a plain `ping` or
+// `server/discover` request correctly has neither a body name/uri nor the
+// header, which is exactly what real client traffic looked like.
 function mcpHeaders(method: string, overrides: Record<string, string> = {}): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     authorization: `Bearer ${AUTH_TOKEN}`,
     'content-type': 'application/json',
     'mcp-protocol-version': SUPPORTED_PROTOCOL_VERSION,
     'mcp-method': method,
-    'mcp-name': 'elementor-mcp',
-    ...overrides,
   };
+
+  if (method === 'tools/call') {
+    headers['mcp-name'] = 'get_site_info';
+  }
+
+  return { ...headers, ...overrides };
 }
 
-function mcpBody(method: string, id: string | number | null = 1): Record<string, unknown> {
+function mcpBody(
+  method: string,
+  id: string | number | null = 1,
+  params: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     jsonrpc: '2.0',
     id,
     method,
-    _meta: {
-      protocolVersion: SUPPORTED_PROTOCOL_VERSION,
-      method,
-      name: 'elementor-mcp',
+    params: {
+      ...params,
+      _meta: { 'io.modelcontextprotocol/protocolVersion': SUPPORTED_PROTOCOL_VERSION },
     },
   };
 }
@@ -55,7 +67,35 @@ describe('MCP protocol route', () => {
 
     expect(response.statusCode).toBe(200);
     const json = response.json<{ result: { resultType: string } }>();
-    expect(json.result.resultType).toBe('ping');
+    expect(json.result.resultType).toBe('complete');
+  });
+
+  it('implements server/discover per spec (MUST-implement), no Mcp-Name required', async () => {
+    const app = buildServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: mcpHeaders('server/discover'),
+      payload: mcpBody('server/discover'),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const json = response.json<{
+      result: {
+        resultType: string;
+        supportedVersions: string[];
+        capabilities: Record<string, unknown>;
+        _meta: Record<string, unknown>;
+      };
+    }>();
+    expect(json.result.resultType).toBe('complete');
+    expect(json.result.supportedVersions).toEqual([SUPPORTED_PROTOCOL_VERSION]);
+    expect(json.result.capabilities).toEqual({ tools: {} });
+    expect(json.result._meta['io.modelcontextprotocol/serverInfo']).toEqual({
+      name: 'emcp-server',
+      version: '0.1.0',
+    });
   });
 
   it('returns tools/list with resultType, cacheScope, ttlMs and registered tools', async () => {
@@ -77,7 +117,7 @@ describe('MCP protocol route', () => {
         tools: Array<{ name: string }>;
       };
     }>();
-    expect(json.result.resultType).toBe('tools/list');
+    expect(json.result.resultType).toBe('complete');
     expect(json.result.cacheScope).toBe('private');
     expect(typeof json.result.ttlMs).toBe('number');
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
@@ -97,8 +137,8 @@ describe('MCP protocol route', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/mcp',
-      headers: mcpHeaders('tools/call'),
-      payload: { ...mcpBody('tools/call'), params: { name: 'not_a_real_tool' } },
+      headers: mcpHeaders('tools/call', { 'mcp-name': 'not_a_real_tool' }),
+      payload: mcpBody('tools/call', 1, { name: 'not_a_real_tool' }),
     });
 
     expect(response.statusCode).toBe(404);
@@ -113,7 +153,7 @@ describe('MCP protocol route', () => {
       method: 'POST',
       url: '/mcp',
       headers: mcpHeaders('tools/call'),
-      payload: { ...mcpBody('tools/call'), params: {} },
+      payload: mcpBody('tools/call', 1, {}),
     });
 
     expect(response.statusCode).toBe(400);
@@ -127,7 +167,7 @@ describe('MCP protocol route', () => {
       method: 'POST',
       url: '/mcp',
       headers: mcpHeaders('tools/call'),
-      payload: { ...mcpBody('tools/call'), params: { name: 'get_site_info' } },
+      payload: mcpBody('tools/call', 1, { name: 'get_site_info' }),
     });
 
     expect(response.statusCode).toBe(200);
@@ -135,7 +175,7 @@ describe('MCP protocol route', () => {
     expect(json.result.isError).toBe(true);
   });
 
-  it('returns 400 + -32020 when Mcp-Method header disagrees with _meta.method', async () => {
+  it('returns 400 + -32020 when Mcp-Method header disagrees with the body method', async () => {
     const app = buildServer();
 
     const response = await app.inject({
@@ -150,7 +190,7 @@ describe('MCP protocol route', () => {
     expect(json.error.code).toBe(-32020);
   });
 
-  it('returns 400 + -32020 when a required header is missing', async () => {
+  it('does NOT require Mcp-Name for a method with no name/uri (e.g. ping) — real client traffic omits it', async () => {
     const app = buildServer();
     const headers = mcpHeaders('ping');
     delete headers['mcp-name'];
@@ -160,6 +200,21 @@ describe('MCP protocol route', () => {
       url: '/mcp',
       headers,
       payload: mcpBody('ping'),
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('returns 400 + -32020 when Mcp-Name is missing for tools/call, which does require it', async () => {
+    const app = buildServer();
+    const headers = mcpHeaders('tools/call');
+    delete headers['mcp-name'];
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers,
+      payload: mcpBody('tools/call', 1, { name: 'get_site_info' }),
     });
 
     expect(response.statusCode).toBe(400);
