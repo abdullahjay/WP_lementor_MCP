@@ -26,6 +26,24 @@ export async function getSiteBySlug(db: Database, slug: string): Promise<SiteRec
   return rows[0] ?? null;
 }
 
+/**
+ * EMCP-039: `list_changes`/`rollback` need "the current site" in a
+ * single-connector session that only carries `WP_BASE_URL` (solution.md
+ * §3 — no `site_id` argument anywhere), not a slug. Matches on an exact
+ * URL string, not a fuzzy one — `url` has no unique constraint, so an
+ * ambiguous match (more than one row sharing a URL) is a real
+ * misconfiguration, not something to silently pick a winner for.
+ */
+export async function getSiteByUrl(db: Database, url: string): Promise<SiteRecord | null> {
+  const rows = await db.select().from(sites).where(eq(sites.url, url)).limit(2);
+
+  if (rows.length > 1) {
+    throw new Error(`More than one registered site has the URL "${url}" — registry is ambiguous.`);
+  }
+
+  return rows[0] ?? null;
+}
+
 export async function listSites(db: Database): Promise<SiteRecord[]> {
   return db.select().from(sites);
 }

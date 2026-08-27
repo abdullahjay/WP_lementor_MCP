@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace EMCP\Rest;
 
+use EMCP\Documents\DocumentHasher;
+
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -78,6 +80,7 @@ final class DocumentsController {
 			'type'     => $post->post_type,
 			'modified' => get_post_modified_time( 'c', true, $post ),
 			'edit_url' => get_edit_post_link( $post->ID, 'raw' ),
+			'link'     => get_permalink( $post ), // EMCP-034: render_preview's navigation target.
 		];
 	}
 
@@ -141,12 +144,328 @@ final class DocumentsController {
 			[
 				'id'             => $post_id,
 				'source'         => $source,
+				'status'         => $post->post_status, // EMCP-039: rollback's publish-state gate.
+				'link'           => get_permalink( $post_id ),
 				'elements'       => $elements,
 				'meta'           => $meta,
-				'document_hash'  => $this->document_hash( $elements, $meta['page_settings'] ),
+				'document_hash'  => DocumentHasher::hash( $elements, $meta['page_settings'] ),
 			],
 			200
 		);
+	}
+
+	// Blueprints.md §7.2: "maxItems is set and stated."
+	private const MAX_OPERATIONS = 20;
+
+	/**
+	 * `PUT /documents/{id}` — the write path `edit_elements` (EMCP-043) calls.
+	 * Started as EMCP-040's deliberately minimal single-element vehicle, then
+	 * gained document-hash CAS (EMCP-041, §6.4) and post-lock refusal
+	 * (EMCP-042, §6.3); EMCP-043 generalized the single `element_id`/
+	 * `settings` pair into a **batch** of `operations`, matching Blueprints.md
+	 * §7.2's real contract. Still not the full §6.3 contract in one respect:
+	 * draft/autosave branching (EMCP-045) — always writes the **parent**
+	 * directly via `Document::save()`, never an autosave.
+	 *
+	 * Each operation is a flat object with `op` as a required enum
+	 * (Blueprints.md §7.2: "not a JSON Schema `oneOf` at item level, which is
+	 * where models reliably produce malformed input"). Only `set_settings`
+	 * exists today — a shallow merge onto one element's existing `settings`,
+	 * not the deep merge `raw` (§2.8) needs. Structural validation (widget
+	 * exists, setting key real, control conditions honoured — EMCP-036) is
+	 * Node's job, run *before* this endpoint is ever called, same as before;
+	 * this endpoint validates what only it can know (does this element id
+	 * exist on this document *right now*), not widget schema.
+	 *
+	 * **Transaction semantics (Blueprints.md §7.2): all operations validate
+	 * before any apply; the batch is one document save; a failure applies
+	 * nothing.** Every operation's target element is located *before* any
+	 * merge happens — if any is missing, the whole batch is refused with a
+	 * diagnostic per missing operation, and `Document::save()` is never
+	 * called. Once every element is confirmed to exist, every merge is
+	 * applied in memory and saved in exactly one `Document::save()` call —
+	 * never one save per operation, which would leave a partially-applied
+	 * document visible between saves if a later operation failed.
+	 *
+	 * Lock and hash checks below are unchanged from EMCP-041/042 — see their
+	 * own history in git blame / progress.md for the reasoning; they still
+	 * run once, for the whole batch, before any operation is even located.
+	 */
+	public function update( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$post_id       = (int) $request->get_param( 'id' );
+		$operations    = $request->get_param( 'operations' );
+		$expected_hash = $request->get_param( 'document_hash' );
+		$override_lock = true === $request->get_param( 'override_lock' );
+
+		if (
+			! is_array( $operations ) || [] === $operations || count( $operations ) > self::MAX_OPERATIONS ||
+			! is_string( $expected_hash ) || '' === $expected_hash
+		) {
+			return new \WP_Error(
+				'emcp_invalid_request',
+				sprintf(
+					/* translators: %d: max operations */
+					__( 'A "document_hash" and a non-empty "operations" array (max %d items) are required.', 'emcp' ),
+					self::MAX_OPERATIONS
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$shape_errors = $this->validate_operation_shapes( $operations );
+		if ( [] !== $shape_errors ) {
+			return new \WP_Error(
+				'emcp_invalid_operation',
+				__( 'One or more operations are malformed.', 'emcp' ),
+				[ 'status' => 400, 'diagnostics' => $shape_errors ]
+			);
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'No post exists with that ID.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'emcp_forbidden',
+				__( 'The authenticated user is not permitted to edit this post.', 'emcp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		if ( 'builder' !== get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+			return new \WP_Error(
+				'emcp_not_an_elementor_document',
+				__( 'This post was not built with Elementor.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( ! $override_lock ) {
+			$locked_by = $this->check_lock( $post_id );
+
+			if ( null !== $locked_by ) {
+				return new \WP_REST_Response(
+					[
+						'id'        => $post_id,
+						'locked_by' => $locked_by,
+						'message'   => __( 'This post is currently being edited by another user. Pass "override_lock": true to write anyway.', 'emcp' ),
+					],
+					423
+				);
+			}
+		}
+
+		$elements      = $this->decode_elementor_data( $post_id );
+		$page_settings = $this->decode_json_meta( $post_id, '_elementor_page_settings' );
+		$current_hash  = DocumentHasher::hash( $elements, $page_settings );
+
+		if ( $expected_hash !== $current_hash ) {
+			// A flat `WP_REST_Response`, not `WP_Error` — every other error
+			// path in this controller uses `WP_Error`, but a hash mismatch is
+			// a structured "here is the current state, retry with this hash"
+			// payload the caller needs to read data out of (`document_hash`),
+			// not just an error code. Blueprints.md §6.4: "returning the new
+			// hash... The write response returns the new hash" — kept the
+			// same top-level `document_hash` key on both the 409 and the 200
+			// so a caller doesn't need two different unwrapping paths.
+			return new \WP_REST_Response(
+				[
+					'id'            => $post_id,
+					'document_hash' => $current_hash,
+					'message'       => __( 'The document has changed since the hash you sent was read. Re-fetch the document and retry with the current hash.', 'emcp' ),
+				],
+				409
+			);
+		}
+
+		// Validate every operation's target element exists *before* applying
+		// any of them — "all operations validate before any apply".
+		$missing = [];
+		foreach ( $operations as $index => $operation ) {
+			if ( null === $this->find_element( $elements, (string) $operation['element_id'] ) ) {
+				$missing[] = [
+					'path'    => "operations[{$index}]",
+					'code'    => 'ELEMENT_NOT_FOUND',
+					'message' => sprintf(
+						/* translators: %s: element id */
+						__( 'No element with id "%s" exists on this document.', 'emcp' ),
+						$operation['element_id']
+					),
+				];
+			}
+		}
+
+		if ( [] !== $missing ) {
+			return new \WP_Error(
+				'emcp_element_not_found',
+				__( 'One or more operations target an element that does not exist. Nothing was applied.', 'emcp' ),
+				[ 'status' => 404, 'diagnostics' => $missing ]
+			);
+		}
+
+		$results = [];
+		foreach ( $operations as $operation ) {
+			$element_id = (string) $operation['element_id'];
+			$this->merge_settings_into_element( $elements, $element_id, $operation['settings'] );
+			$results[] = [ 'element_id' => $element_id, 'applied' => true ];
+		}
+
+		$document = \Elementor\Plugin::$instance->documents->get( $post_id );
+
+		if ( ! $document ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'Elementor could not load this document.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$document->save( [ 'elements' => $elements ] );
+
+		return new \WP_REST_Response(
+			[
+				'id'            => $post_id,
+				'results'       => $results,
+				'document_hash' => DocumentHasher::hash( $elements, $page_settings ),
+			],
+			200
+		);
+	}
+
+	/**
+	 * @param mixed $operations
+	 * @return array<int, array{path: string, code: string, message: string}>
+	 */
+	private function validate_operation_shapes( $operations ): array {
+		$errors = [];
+
+		foreach ( $operations as $index => $operation ) {
+			$path = "operations[{$index}]";
+
+			if ( ! is_array( $operation ) ) {
+				$errors[] = [ 'path' => $path, 'code' => 'DSL_VERSION_UNSUPPORTED', 'message' => __( 'Each operation must be an object.', 'emcp' ) ];
+				continue;
+			}
+
+			if ( ! isset( $operation['op'] ) || 'set_settings' !== $operation['op'] ) {
+				$errors[] = [
+					'path'    => "{$path}.op",
+					'code'    => 'DSL_VERSION_UNSUPPORTED',
+					'message' => __( 'Unsupported "op" — only "set_settings" exists today.', 'emcp' ),
+				];
+			}
+
+			if ( ! isset( $operation['element_id'] ) || ! is_string( $operation['element_id'] ) || '' === $operation['element_id'] ) {
+				$errors[] = [ 'path' => "{$path}.element_id", 'code' => 'CONTROL_NOT_FOUND', 'message' => __( 'A non-empty "element_id" is required.', 'emcp' ) ];
+			}
+
+			if ( ! isset( $operation['settings'] ) || ! is_array( $operation['settings'] ) || [] === $operation['settings'] ) {
+				$errors[] = [ 'path' => "{$path}.settings", 'code' => 'CONTROL_NOT_FOUND', 'message' => __( 'A non-empty "settings" object is required.', 'emcp' ) ];
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $elements
+	 * @return array<string, mixed>|null
+	 */
+	private function find_element( array $elements, string $element_id ): ?array {
+		foreach ( $elements as $element ) {
+			if ( ( $element['id'] ?? '' ) === $element_id ) {
+				return $element;
+			}
+
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$found = $this->find_element( $element['elements'], $element_id );
+				if ( null !== $found ) {
+					return $found;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $elements
+	 * @param array<string, mixed>             $settings
+	 */
+	private function merge_settings_into_element( array &$elements, string $element_id, array $settings ): bool {
+		foreach ( $elements as &$element ) {
+			if ( ( $element['id'] ?? '' ) === $element_id ) {
+				$element['settings'] = array_merge( $element['settings'] ?? [], $settings );
+				return true;
+			}
+
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				if ( $this->merge_settings_into_element( $element['elements'], $element_id, $settings ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * `GET /documents/{id}/lock` — Blueprints.md §6's frozen route table
+	 * (row present since EMCP-010; never implemented until now). Lets a
+	 * caller check lock state without attempting — and having refused — a
+	 * write first, e.g. before deciding whether to show an "in use" warning.
+	 * Read-only: `Capabilities::can_read` is enough, no `edit_post` check of
+	 * its own beyond that, since this reveals no content, only whether
+	 * *someone* is editing.
+	 */
+	public function lock_status( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$post_id = (int) $request->get_param( 'id' );
+		$post    = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'No post exists with that ID.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$locked_by = $this->check_lock( $post_id );
+
+		return new \WP_REST_Response(
+			[
+				'id'        => $post_id,
+				'locked'    => null !== $locked_by,
+				'locked_by' => $locked_by,
+			],
+			200
+		);
+	}
+
+	/**
+	 * @return array{id: int, name: string|null}|null
+	 */
+	private function check_lock( int $post_id ): ?array {
+		require_once ABSPATH . 'wp-admin/includes/post.php';
+		$locking_user_id = wp_check_post_lock( $post_id );
+
+		if ( false === $locking_user_id ) {
+			return null;
+		}
+
+		$locking_user = get_userdata( $locking_user_id );
+
+		return [
+			'id'   => $locking_user_id,
+			'name' => $locking_user instanceof \WP_User ? $locking_user->display_name : null,
+		];
 	}
 
 	private function find_autosave( int $parent_id ): ?\WP_Post {
@@ -170,39 +489,5 @@ final class DocumentsController {
 		$decoded = json_decode( $raw, true );
 
 		return is_array( $decoded ) ? $decoded : [];
-	}
-
-	/**
-	 * Blueprints.md §6.4: "covers the element tree and page settings,
-	 * computed server-side over a canonical serialization." Canonical here
-	 * means: associative (object-shaped) sub-arrays get their keys sorted
-	 * before hashing, so key order never changes the hash; list-shaped
-	 * arrays (the actual element tree — order is meaningful there) are left
-	 * alone. `array_is_list()` (PHP 8.1+, matches this plugin's minimum)
-	 * is exactly the distinction this needs.
-	 */
-	private function document_hash( array $elements, array $page_settings ): string {
-		$canonical = $this->canonicalize(
-			[
-				'elements'      => $elements,
-				'page_settings' => $page_settings,
-			]
-		);
-
-		return hash( 'sha256', (string) wp_json_encode( $canonical ) );
-	}
-
-	private function canonicalize( mixed $value ): mixed {
-		if ( ! is_array( $value ) ) {
-			return $value;
-		}
-
-		if ( array_is_list( $value ) ) {
-			return array_map( [ $this, 'canonicalize' ], $value );
-		}
-
-		ksort( $value );
-
-		return array_map( [ $this, 'canonicalize' ], $value );
 	}
 }
