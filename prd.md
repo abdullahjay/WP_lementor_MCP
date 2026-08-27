@@ -330,7 +330,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Honours control `condition` / `conditions`
   - `common` output for a Pro widget stays within a stated token budget
 
-#### [ ] Task 29: `get_global_styles`
+#### [x] Task 29: `get_global_styles`
 - **ID:** EMCP-029
 - **Depends:** EMCP-004
 - **Verify:** live
@@ -339,7 +339,7 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
   - Kit colours, fonts, typography presets. Read-only
   - V4 sandbox additionally reports global classes and variables
 
-#### [ ] Task 30: V4 authoring spike ⚠️
+#### [x] Task 30: V4 authoring spike ⚠️
 - **ID:** EMCP-030
 - **Depends:** EMCP-008
 - **Verify:** human
@@ -354,63 +354,63 @@ Detail decreases with distance. FOUNDATION through READ LAYER are specified to t
 
 Coarse until READ LAYER completes.
 
-#### [ ] Task 31: Renderer service
+#### [x] Task 31: Renderer service
 - **ID:** EMCP-031 · **Depends:** EMCP-001 · **Verify:** live
 - Playwright service, isolated network, no credential or KMS access
 
-#### [ ] Task 32: Egress filtering
+#### [x] Task 32: Egress filtering
 - **ID:** EMCP-032 · **Depends:** EMCP-031 · **Verify:** unit
 - Connect-time filtering, re-checked after every redirect; RFC1918/loopback/link-local rejected; non-http(s) schemes blocked; fresh browser context per render
 
-#### [ ] Task 33: `POST /preview-token`
+#### [x] Task 33: `POST /preview-token`
 - **ID:** EMCP-033 · **Depends:** EMCP-003 · **Verify:** live
 - Signed, single-post, single-use, short TTL, own `read_post` gating, issuance and redemption logged
 
-#### [ ] Task 34: `render_preview`
+#### [x] Task 34: `render_preview`
 - **ID:** EMCP-034 · **Depends:** EMCP-032, EMCP-033 · **Verify:** live
 - `resource_link` by default, region-scoped capture, `.elementor-{post_id}`, font and lazy-image settling, one image per call, never SVG
 
-#### [ ] Task 35: Cache invalidation before capture
+#### [x] Task 35: Cache invalidation before capture
 - **ID:** EMCP-035 · **Depends:** EMCP-034 · **Verify:** live
 - Element Cache and CSS invalidated and warmed, or the loop grades stale HTML
 
 ### SAFETY RING
 
-#### [ ] Task 36: Structural validation
+#### [x] Task 36: Structural validation
 - **ID:** EMCP-036 · **Depends:** EMCP-018 · **Verify:** unit
 - Widget exists on this site, settings keys real, control conditions honoured, errors carry a JSON path
 
-#### [ ] Task 37: Snapshot capture and restore
+#### [x] Task 37: Snapshot capture and restore
 - **ID:** EMCP-037 · **Depends:** EMCP-003 · **Verify:** live
 - Records whether it captured parent or autosave; restore uses `wp_slash( wp_json_encode( … ) )`; passes the unicode round-trip fixture
 
-#### [ ] Task 38: Ledger
+#### [x] Task 38: Ledger
 - **ID:** EMCP-038 · **Depends:** EMCP-013, EMCP-037 · **Verify:** unit
 - Index rows in Node, snapshot payloads in WordPress; args allowlisted in, never denylisted out; correlation IDs recorded
 
-#### [ ] Task 39: `list_changes` and bounded `rollback`
+#### [x] Task 39: `list_changes` and bounded `rollback`
 - **ID:** EMCP-039 · **Depends:** EMCP-038 · **Verify:** live
 - Bounded ranges, never crossing a site boundary, snapshotted before running
 
-#### [ ] Task 40: Prove the safety ring on a minimal write ⚠️
+#### [x] Task 40: Prove the safety ring on a minimal write ⚠️
 - **ID:** EMCP-040 · **Depends:** EMCP-036..039 · **Verify:** live
 - `update_element` on a single text field, end to end, with a verified rollback. This is the test vehicle that resolves the ordering rule. **No task after this may ship a mutating tool until this is DONE.**
 
 ### WRITE LAYER
 
-#### [ ] Task 41: Document hash compare-and-swap
+#### [x] Task 41: Document hash compare-and-swap
 - **ID:** EMCP-041 · **Depends:** EMCP-040 · **Verify:** live
 - Computed server-side over element tree plus page settings; CAS inside the write request; write returns the new hash
 
-#### [ ] Task 42: Post lock refusal
+#### [x] Task 42: Post lock refusal
 - **ID:** EMCP-042 · **Depends:** EMCP-041 · **Verify:** live
 - `wp_check_post_lock()` consulted; refuses when a human is editing
 
-#### [ ] Task 43: `edit_elements`
+#### [x] Task 43: `edit_elements`
 - **ID:** EMCP-043 · **Depends:** EMCP-041 · **Verify:** live
 - Flat operation items with `op` enum, not `oneOf`; `maxItems`; validate-all-then-apply; one document save; transaction semantics stated in the error text
 
-#### [ ] Task 44: Idempotency keys
+#### [x] Task 44: Idempotency keys
 - **ID:** EMCP-044 · **Depends:** EMCP-043 · **Verify:** unit
 - Scoped to `(subject, site)`, expiring; a repeat key returns the prior result
 

@@ -11,6 +11,11 @@ import { getElementTool } from '../tools/getElement.js';
 import { findElementsTool } from '../tools/findElements.js';
 import { listWidgetsTool } from '../tools/listWidgets.js';
 import { describeWidgetTool } from '../tools/describeWidget.js';
+import { getGlobalStylesTool } from '../tools/getGlobalStyles.js';
+import { renderPreviewTool } from '../tools/renderPreview.js';
+import { listChangesTool } from '../tools/listChanges.js';
+import { rollbackTool } from '../tools/rollback.js';
+import { editElementsTool } from '../tools/editElements.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -34,6 +39,11 @@ export function buildServer(): FastifyInstance {
   registry.registerTool(findElementsTool);
   registry.registerTool(listWidgetsTool);
   registry.registerTool(describeWidgetTool);
+  registry.registerTool(getGlobalStylesTool);
+  registry.registerTool(editElementsTool);
+  registry.registerTool(renderPreviewTool);
+  registry.registerTool(listChangesTool);
+  registry.registerTool(rollbackTool);
   registerMcpRoute(app, registry);
 
   return app;

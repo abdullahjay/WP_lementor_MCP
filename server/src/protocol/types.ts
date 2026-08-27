@@ -51,6 +51,7 @@ export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 
 export type MethodHandler = (
   params: Record<string, unknown> | undefined,
+  correlationId?: string,
 ) => Promise<Record<string, unknown>> | Record<string, unknown>;
 
 /**
@@ -58,10 +59,19 @@ export type MethodHandler = (
  * carry serialized JSON in a text block for compatibility" alongside
  * `structuredContent`, which is what `outputSchema` actually validates.
  */
-export interface ToolContentBlock {
+export interface ToolTextContentBlock {
   type: 'text';
   text: string;
 }
+
+/** `render_preview`'s `return_image: true` path (Blueprints.md §7.4) — inline base64, never SVG. */
+export interface ToolImageContentBlock {
+  type: 'image';
+  data: string;
+  mimeType: 'image/png';
+}
+
+export type ToolContentBlock = ToolTextContentBlock | ToolImageContentBlock;
 
 export interface ToolCallResult {
   content: ToolContentBlock[];
@@ -87,7 +97,19 @@ export interface ToolDescriptor {
 }
 
 export interface ToolImplementation extends ToolDescriptor {
+  /**
+   * `correlationId` is Fastify's own request id (`route.ts`'s
+   * `request.id`), threaded down from `registry.ts`'s `dispatch()` —
+   * solution.md: "Correlation IDs generated in Node, propagated into every
+   * WP REST call, written to ledger rows, echoed in every result and
+   * error." Optional on the type (not every tool needs it, and it keeps
+   * every handler already written before EMCP-043 — none of which declare
+   * it — structurally valid without touching them) but always supplied by
+   * the real dispatch path; only a direct unit-test call to `tool.handler`
+   * would ever see it as `undefined`.
+   */
   handler: (
     args: Record<string, unknown> | undefined,
+    correlationId?: string,
   ) => Promise<ToolCallResult> | ToolCallResult;
 }

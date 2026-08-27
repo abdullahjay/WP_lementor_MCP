@@ -195,6 +195,19 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CREDENTIALS_KEK: ${CREDENTIALS_KEK}
+      # EMCP-034 (render_preview): renderer's own internal port (not
+      # RENDERER_PORT, the host-mapped one — same distinction as
+      # POSTGRES_INTERNAL_PORT above), plus MinIO for storing screenshots
+      # and generating presigned GET links.
+      RENDERER_URL: http://renderer:3100
+      MINIO_ENDPOINT: http://minio:9000
+      # resource_link must be fetchable by whoever calls render_preview —
+      # outside the docker network, not inside it. ${MINIO_PORT} is the
+      # host-mapped port (docker-compose's "minio" service port list above).
+      MINIO_PUBLIC_ENDPOINT: http://localhost:${MINIO_PORT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
     ports:
       - "${MCP_PORT}:3000"
     networks: [wp_net, data_net, render_net]
@@ -205,22 +218,21 @@ services:
       retries: 5
 
   renderer:
-    image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    build:
+      context: .
+      dockerfile: docker/renderer/Dockerfile
     restart: unless-stopped
-    # Placeholder until EMCP-031 exists. render_net ONLY — see the isolation
-    # note at the top of this file.
-    command: >
-      node -e "
-      require('http').createServer((req, res) => {
-        res.writeHead(200, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({ status: 'placeholder', task: 'EMCP-031 not yet implemented' }));
-      }).listen(3100, () => console.log('renderer placeholder listening on 3100'));
-      "
+    # EMCP-031. render_net ONLY — see the isolation note at the top of this
+    # file; scripts/test-renderer-isolation.sh proves it can't reach
+    # db/db-wp (no credential store, no KMS grant, solution.md §9.5).
+    environment:
+      RENDERER_INTERNAL_PORT: 3100
+      LOG_LEVEL: ${LOG_LEVEL}
     ports:
       - "${RENDERER_PORT}:3100"
     networks: [render_net]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3100/"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3100/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5

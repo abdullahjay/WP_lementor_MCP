@@ -20,6 +20,8 @@
     "db:migrate:down": "tsx src/db/migrate.ts down"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1119.0",
+    "@aws-sdk/s3-request-presigner": "^3.1119.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.1",

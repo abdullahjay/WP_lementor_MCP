@@ -122,12 +122,17 @@ describe('MCP protocol route', () => {
     expect(typeof json.result.ttlMs).toBe('number');
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
       'describe_widget',
+      'edit_elements',
       'find_elements',
       'get_element',
+      'get_global_styles',
       'get_page_structure',
       'get_site_info',
+      'list_changes',
       'list_pages',
       'list_widgets',
+      'render_preview',
+      'rollback',
     ]);
   });
 

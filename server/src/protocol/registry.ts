@@ -23,7 +23,7 @@ export class MethodRegistry {
   constructor() {
     this.handlers.set('ping', () => ({}));
     this.handlers.set('tools/list', () => this.listTools());
-    this.handlers.set('tools/call', (params) => this.callTool(params));
+    this.handlers.set('tools/call', (params, correlationId) => this.callTool(params, correlationId));
     // Spec-mandated ("Servers MUST implement server/discover") — a dual-era
     // client (confirmed live: claude-code/2.1.240) probes with this before
     // anything else, and falls back to the legacy `initialize` handshake if
@@ -49,6 +49,7 @@ export class MethodRegistry {
   async dispatch(
     method: string,
     params: Record<string, unknown> | undefined,
+    correlationId?: string,
   ): Promise<Record<string, unknown>> {
     const handler = this.handlers.get(method);
 
@@ -56,7 +57,7 @@ export class MethodRegistry {
       throw new Error(`No handler registered for method "${method}".`);
     }
 
-    const result = await handler(params);
+    const result = await handler(params, correlationId);
 
     return { ...result, resultType: 'complete' };
   }
@@ -93,6 +94,7 @@ export class MethodRegistry {
 
   private async callTool(
     params: Record<string, unknown> | undefined,
+    correlationId?: string,
   ): Promise<Record<string, unknown>> {
     const name = params?.['name'];
 
@@ -116,7 +118,7 @@ export class MethodRegistry {
 
     const rawArgs = params?.['arguments'];
     const args = isRecord(rawArgs) ? rawArgs : undefined;
-    const result = await tool.handler(args);
+    const result = await tool.handler(args, correlationId);
 
     // ToolCallResult has no index signature, so it isn't structurally
     // assignable to Record<string, unknown> on its own — spreading into a

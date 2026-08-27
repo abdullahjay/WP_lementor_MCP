@@ -85,7 +85,7 @@ async function handlePost(
   let result: Record<string, unknown>;
 
   try {
-    result = await registry.dispatch(body.method, body.params);
+    result = await registry.dispatch(body.method, body.params, request.id);
   } catch (error) {
     if (error instanceof JsonRpcMethodError) {
       await reply.code(error.httpStatus).send(jsonRpcError(requestId, error.code, error.message));
