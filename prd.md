@@ -445,9 +445,10 @@ Coarse until READ LAYER completes.
 - **ID:** EMCP-050 · **Depends:** EMCP-049 · **Verify:** unit
 - Done: `server/src/dsl/v3.ts` registers real emitters (`container`, `heading`, `text`, `button`, `icon`, `image`, `spacer`, `divider`, `shortcode`, `html`) against `compile.ts`'s registry. Every setting key/value shape confirmed against live-introspected control names (`GET /widgets/{type}` on `wp-v4-pro`) and the committed fixtures — never guessed. `grid`/`list`/`video` deliberately left `EMISSION_NOT_IMPLEMENTED`, each for a specific, documented reason (no introspectable control names / repeater-shape mismatch / URL-type detection needed). `layout.width` (non-full/boxed) and `image.alt` warn rather than silently drop when no confirmed mapping exists. 23 new unit tests, several asserting exact equality against real fixture values.
 
-#### [ ] Task 51: v4 emission
+#### [x] Task 51: v4 emission
 - **ID:** EMCP-051 · **Depends:** EMCP-049, EMCP-030 · **Verify:** unit
 - Nested typed props, local `styles` array, per-element `version`
+- Done: `server/src/dsl/v4.ts` registers emitters for `container`(→e-flexbox), `heading`, `text`(→e-paragraph), `button`, `image`, `divider`. Ground truth via direct PHP source reads (atomic widgets' `define_props_schema()`, `style-schema.php`) since `GET /widgets/{type}` doesn't introspect atomic widgets (CLAUDE.md gotcha) — never inferred from v3. Recursive `$$type`/`value` wrapping confirmed from `Plain_Prop_Type`/`Object_Prop_Type`'s own validate() source. Found and fixed a real design gap in `compile.ts` (EMCP-049): v4's local-class name needs the element's own id, but core generated ids *after* calling the emitter — fixed by generating first, passing via new `EmitContext.elementId`. Local styles (desktop-only, no responsive — EMCP-052's job) built for `layout`'s flex/spacing properties. `grid`/`icon`/`list`/`spacer`/`shortcode`/`html`/`video`/`style` object/`link` all deliberately deferred, each for a specific documented reason (confirmed live: v4 has no icon/spacer widget at all). `image.alt` **is** supported on v4, unlike v3. 22 new unit tests caught one real bug (an early `container` emitter draft always emitted `classes` even when unneeded) before it shipped.
 
 #### [ ] Task 52: Responsive
 - **ID:** EMCP-052 · **Depends:** EMCP-050, EMCP-051 · **Verify:** unit

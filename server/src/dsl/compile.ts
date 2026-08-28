@@ -103,6 +103,16 @@ export interface CompileResult {
 export interface EmitContext {
   siteProfile: SiteProfile;
   path: string;
+  /**
+   * The element's own id, generated *before* the emitter runs (EMCP-051
+   * needed this: v4's local-class-name convention embeds the owning
+   * element's id, e.g. `e-a7f4eea-c96ec15` — confirmed live in
+   * `tests/fixtures/v4-atomic.json` — so the id has to exist before a v4
+   * emitter can build its `classes`/`styles` output, not after). v3
+   * emitters have no reason to reference it. `compile()` still owns
+   * uniqueness (§3.3) — an emitter never generates its own id.
+   */
+  elementId: string;
 }
 
 /** What an emitter itself is responsible for — `compile()` owns `id`/`elements` (§3.3's whole-tree ID uniqueness and recursion) so no emitter can get either wrong. */
@@ -220,7 +230,8 @@ function compileNodes(
       continue;
     }
 
-    const outcome = emitter(node, { siteProfile, path });
+    const elementId = generateUniqueId(usedIds);
+    const outcome = emitter(node, { siteProfile, path, elementId });
     diagnostics.push(...outcome.diagnostics);
 
     if (!outcome.element) {
@@ -233,7 +244,7 @@ function compileNodes(
 
     const element: ElementorNode = {
       ...outcome.element,
-      id: generateUniqueId(usedIds),
+      id: elementId,
       elements: children,
     };
     compiled.push(element);
@@ -253,12 +264,27 @@ function compileNodes(
  * own gotcha) gets shipped.
  */
 function generateUniqueId(usedIds: Set<string>): string {
-  let id = randomBytes(4).toString('hex').slice(0, 7);
+  let id = randomHex7();
   while (usedIds.has(id)) {
-    id = randomBytes(4).toString('hex').slice(0, 7);
+    id = randomHex7();
   }
   usedIds.add(id);
   return id;
+}
+
+/**
+ * Exported for v4 emitters (EMCP-051): the local-class-name suffix
+ * (`e-<elementId>-<suffix>`, confirmed live in `tests/fixtures/
+ * v4-atomic.json`) uses this exact same 7-hex-char shape. Deliberately
+ * not uniqueness-checked against the tree's `usedIds` the way element ids
+ * are (§3.3) — a v4 emitter has no access to that shared set, and a class
+ * suffix colliding with another element's suffix (~1-in-268M per pair) is
+ * a CSS-hygiene concern, not the structural correctness §3.3's own
+ * uniqueness rule protects against (a duplicated *element* id, which
+ * causes real style bleed — CLAUDE.md's gotcha).
+ */
+export function randomHex7(): string {
+  return randomBytes(4).toString('hex').slice(0, 7);
 }
 
 function countNodes(nodes: SpecNode[]): { total: number; htmlCount: number; rawCount: number } {
