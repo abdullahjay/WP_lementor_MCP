@@ -441,8 +441,9 @@ Coarse until READ LAYER completes.
 - Pure and synchronous with `siteProfile` injected; invariants from §3.3
 - Done: `server/src/dsl/compile.ts`'s `compile(spec, siteProfile)`. Owns the orchestration §3.3's invariants require — whole-tree unique 7-char-hex ID generation, recursive walk, diagnostic aggregation, `nativeness`/`rawRatio`, required `docMeta` — via a pluggable `registerEmitter(nodeType, generation, emitter)` registry that EMCP-050/051 populate with the real v3/v4 DSL→native mapping tables (deliberately not this task's job). Ships one real, working emitter itself: `widget` (§2.3's escape rung, §3.2's own "generation-agnostic passthrough" case), with a genuine `WIDGET_NOT_AVAILABLE` check against `siteProfile.widgetRegistry`. Every other node type currently reports `EMISSION_NOT_IMPLEMENTED` (new code, added to Blueprints.md §8.2) until EMCP-050/051 register real emitters — expected, not a gap. `siteProfile.generation` typed `'v3'|'v4'` only (never `'legacy'` — §5.1: legacy is create-never). All-or-nothing, matching EMCP-048's `parseSpec()`: any node's failure empties the whole result. 15 new unit tests.
 
-#### [ ] Task 50: v3 emission
+#### [x] Task 50: v3 emission
 - **ID:** EMCP-050 · **Depends:** EMCP-049 · **Verify:** unit
+- Done: `server/src/dsl/v3.ts` registers real emitters (`container`, `heading`, `text`, `button`, `icon`, `image`, `spacer`, `divider`, `shortcode`, `html`) against `compile.ts`'s registry. Every setting key/value shape confirmed against live-introspected control names (`GET /widgets/{type}` on `wp-v4-pro`) and the committed fixtures — never guessed. `grid`/`list`/`video` deliberately left `EMISSION_NOT_IMPLEMENTED`, each for a specific, documented reason (no introspectable control names / repeater-shape mismatch / URL-type detection needed). `layout.width` (non-full/boxed) and `image.alt` warn rather than silently drop when no confirmed mapping exists. 23 new unit tests, several asserting exact equality against real fixture values.
 
 #### [ ] Task 51: v4 emission
 - **ID:** EMCP-051 · **Depends:** EMCP-049, EMCP-030 · **Verify:** unit

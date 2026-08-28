@@ -219,6 +219,14 @@ The compiler is **pure and synchronous** — no network. Everything it needs abo
 
 A compiler that assumes flat `{$$type, value}` scalars drops content silently. This is the single most likely v4 bug and gets its own fixture.
 
+**v3 column implemented (EMCP-050).** `server/src/dsl/v3.ts` registers real `compile.ts` emitters for `container`, `heading`, `text`, `button`, `icon`, `image`, `spacer`, `divider`, `shortcode`, `html` — every setting key and value shape confirmed against **live-introspected control names** (`GET /widgets/{type}`, EMCP-028, against `wp-v4-pro`) and the committed fixtures (`tests/fixtures/v3-container.json`/`deep-nested.json`, hash-checked and agent-immutable), never guessed from convention. Real, confirmed value-shape helpers: `toSize()` (Elementor's SLIDER control — `{ unit, size, sizes: [] }`, cross-checked against `mixed-legacy-v3.json`'s captured `typography_font_size`), `toDimensions()` (the DIMENSIONS control — 4-sided `{ unit, top, right, bottom, left, isLinked }`, §2.6's box-shorthand expanded), `toGaps()` (the GAPS control), `toLinkControl()` (the URL control's real `{ url, is_external, nofollow, custom_attributes }` shape). `container`'s `isInner` (`false` top-level, `true` nested — confirmed via `deep-nested.json`) is derived from tree depth, since `compile.ts` itself doesn't track it.
+
+**Deliberately deferred, not guessed, each for a specific reason (see `v3.ts`'s own closing docblock for the full reasoning):** `grid` (its real control names live on the non-widget `container` elType, not introspectable via `GET /widgets/{type}` the way every widget above was); `list` (the real "Icon List" widget is a per-item-icon REPEATER control, not a plain text list — no confirmed mapping from the DSL's flat `items: string[]`); `video` (the real widget needs one of six type-specific URL keys selected by `video_type`, requiring URL-pattern detection this task didn't build). All three still report `EMISSION_NOT_IMPLEMENTED` on v3, correctly.
+
+**Two fields with no confirmed v3 mapping, surfaced as warnings rather than silently dropped or hard-failed:** `layout.width` values other than `"full"`/`"boxed"` (the exact-size case needs the container's conditionally-shown `boxed_width` control, not verified); `image.alt` (the real `image` widget has no `alt` control at all — confirmed live; Elementor reads alt text from the attachment itself when `src` is a media id). Both compile successfully; the diagnostic just tells the caller the field wasn't applied.
+
+23 unit tests (`server/src/dsl/v3.test.ts`), several asserting exact equality against real fixture-captured values (not just "some object shape").
+
 ### 3.3 Invariants
 
 Every compile must guarantee:
