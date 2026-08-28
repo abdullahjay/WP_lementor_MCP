@@ -9,6 +9,7 @@ use EMCP\Approvals\ApprovalTokenService;
 use EMCP\PreviewTokens\PreviewTokenService;
 use EMCP\Rest\RestController;
 use EMCP\Snapshots\SnapshotService;
+use EMCP\Templates\TemplateService;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -59,6 +60,7 @@ final class Plugin {
 		PreviewTokenService::create_table();
 		SnapshotService::create_table();
 		ApprovalTokenService::create_table();
+		TemplateService::create_table();
 	}
 
 	public static function deactivate(): void {

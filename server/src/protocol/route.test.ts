@@ -132,10 +132,12 @@ describe('MCP protocol route', () => {
       'get_site_info',
       'list_changes',
       'list_pages',
+      'list_templates',
       'list_widgets',
       'publish_draft',
       'render_preview',
       'rollback',
+      'save_as_template',
       'update_page',
       'validate_page_spec',
     ]);

@@ -486,9 +486,10 @@ Gated on D2 and D4.
 
 ### TEMPLATES
 
-#### [ ] Task 60: `list_templates` and `save_as_template`
+#### [x] Task 60: `list_templates` and `save_as_template`
 - **ID:** EMCP-060 · **Depends:** EMCP-054 · **Verify:** live
 - Stores specs, not frozen native JSON
+- Done: real site-side storage (`{$wpdb->prefix}emcp_templates`, `plugin/src/Templates/TemplateService.php`, mirroring `SnapshotService`'s pattern) via new `GET/POST /wp-json/emcp/v1/templates` routes, plugin stores `spec` opaquely. `save_as_template` reads native elements → `decompile()` → stores the resulting portable spec, never frozen native JSON. `buildSiteProfile()` gained a `requireEmissionGeneration` flag since `decompile()`, unlike `compile()`, has no generation restriction and works on legacy content by design. Neither tool ledgered (nothing to roll back to, same as `create_page`); `save_as_template` supports `idempotency_key`. Live-verified with a genuine round trip on wp-v4-pro: `apply_page_spec` wrote a heading+button, `save_as_template` decompiled the real persisted content back into a clean spec, confirmed by reading the stored DB row directly.
 #### [ ] Task 61: `apply_template`
 - **ID:** EMCP-061 · **Depends:** EMCP-060 · **Verify:** live
 - Regenerates element IDs

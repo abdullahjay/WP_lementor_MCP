@@ -968,6 +968,70 @@ export async function invalidateCache(
   return { postId: body['post_id'], invalidated: body['invalidated'], warmed: body['warmed'] };
 }
 
+/**
+ * `GET /wp-json/emcp/v1/templates` (Blueprints.md §6, EMCP-060).
+ */
+export async function listTemplates(
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<Record<string, unknown>> {
+  const url = new URL('/wp-json/emcp/v1/templates', config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    headers: { authorization: `Basic ${credentials}` },
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new WordPressApiError(`GET /templates returned ${response.status}`, response.status, body);
+  }
+
+  if (!isRecord(body)) {
+    throw new WordPressApiError('GET /templates returned a non-object body.', response.status, body);
+  }
+
+  return body;
+}
+
+/**
+ * `POST /wp-json/emcp/v1/templates` (Blueprints.md §6, EMCP-060). The
+ * plugin stores `spec` opaquely — validation/compilation both already
+ * happened Node-side (`decompile()`/`parseSpec()`) before this is called.
+ */
+export async function saveTemplate(
+  name: string,
+  spec: unknown,
+  sourcePostId: number | undefined,
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{ id: number; name: string; createdAt: string }> {
+  const url = new URL('/wp-json/emcp/v1/templates', config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ name, spec, ...(sourcePostId !== undefined && { source_post_id: sourcePostId }) }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new WordPressApiError(`POST /templates returned ${response.status}`, response.status, body);
+  }
+
+  if (
+    !isRecord(body) ||
+    typeof body['id'] !== 'number' ||
+    typeof body['name'] !== 'string' ||
+    typeof body['created_at'] !== 'string'
+  ) {
+    throw new WordPressApiError('POST /templates returned an unexpected body shape.', response.status, body);
+  }
+
+  return { id: body['id'], name: body['name'], createdAt: body['created_at'] };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

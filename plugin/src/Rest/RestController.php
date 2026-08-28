@@ -176,5 +176,25 @@ final class RestController {
 				'permission_callback' => [ Capabilities::class, 'can_read' ],
 			]
 		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/templates',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new TemplatesController(), 'index' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/templates',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ new TemplatesController(), 'create' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
 	}
 }

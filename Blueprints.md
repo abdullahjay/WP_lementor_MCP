@@ -354,7 +354,7 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 | GET | `/kit` | Global styles |
 | GET | `/global-classes` | v4 classes and variables |
 | GET/POST | `/media` | List / upload |
-| GET/POST | `/templates` | List / save |
+| GET/POST | `/templates` | List / save — real table (§6.10, EMCP-060), spec stored opaquely |
 | POST | `/preview-token` | Signed single-post token (§6.5) |
 | POST | `/snapshots` | Capture prior state |
 | POST | `/snapshots/{id}/restore` | Rollback |
@@ -484,6 +484,14 @@ Both routes are `edit_post`/`create_posts`-gated the same way every other write 
 
 Live-verified end to end through the real `/mcp` endpoint: `create_page` returned a fully populated, immediately-editable document (confirmed by feeding its `post_id` straight into `get_page_structure`); a repeat call under the same `idempotency_key` returned the identical `id` rather than creating a second page (confirmed via `list_pages`); `update_page` changed both title and template on a published post (`document_hash`/elements confirmed unchanged throughout) and correctly refused a call with neither field set; template validation rejected an unknown slug with a clear error.
 
+### 6.10 Templates
+
+**Implemented (EMCP-060).** `GET /templates` → `{templates: [{id, name, source_post_id, created_at}], count}`, no spec content — a lightweight listing, same split `GET /documents` vs. `GET /documents/{id}` already establishes. `POST /templates` — `{name, spec, source_post_id?}` → `{id, name, created_at}`, `201`. A real table (`{$wpdb->prefix}emcp_templates`, `plugin/src/Templates/TemplateService.php`), mirroring `SnapshotService`'s own pattern (§6.8) rather than post meta on a hidden post — site-side storage, per solution.md §10's reasoning for snapshots ("stored site-side so content stays with the site") applied here too: a template is exactly the kind of asset a site owner expects to find on their own site.
+
+**The plugin stores `spec` opaquely** (§6.1: "no DSL... no MCP awareness") — it validates only that `name`/`spec` are non-empty, never the spec's own shape; that's `parseSpec()`'s job, already run Node-side before this route is ever reached. `POST /templates` is gated on `current_user_can('edit_posts')`, a general "can create content" capability, since a template has no single target post the way `edit_post`-gated routes do.
+
+Cross-site portability (prd.md Task 62, not yet built) comes from the DSL spec itself being generation-agnostic and re-`compile()`-able against whatever site `apply_template` eventually targets — not from centralised storage. Storing frozen native JSON instead would have made every template permanently tied to the generation/registry of whichever site produced it.
+
 ---
 
 ## 7. Tool contracts
@@ -595,6 +603,21 @@ update_page: { post_id, title?, page_template? }                    → { id, ti
 `update_page` changes only a page's **attributes** (title, Elementor page template), never its content — that's `edit_elements`'s job. No `document_hash` argument: title/template aren't part of the element tree or its hash, so there's nothing to compare-and-swap. Takes effect immediately regardless of publish state — unlike `edit_elements` (EMCP-045), this never branches to an autosave, since a page template genuinely has no "draft" version the way element content does (§6.9). At least one of `title`/`page_template` is required; a call with neither is refused before any WordPress call.
 
 Neither tool writes a ledger entry or is rollback-able (§6.9's reasoning: `create_page` has nothing to roll back to, and `rollback`'s restore mechanism doesn't touch title/template at all).
+
+### 7.8 `list_templates` / `save_as_template`
+
+```
+list_templates:   {} → { templates: [{id, name, source_post_id, created_at}], count }
+save_as_template: { post_id, name, source?, idempotency_key? } → { id, name, created_at, diagnostics[] }
+```
+
+**Implemented (EMCP-060).** `save_as_template` reads a page's native elements (`GET /documents/{id}`, `source` defaulting to `"parent"`), `decompile()`s them (EMCP-054) into a portable DSL spec, and stores that spec via `POST /templates` (§6.10) — never the frozen native JSON, so the template stays generation-agnostic (§4). `decompile()` never hard-fails, so this tool always succeeds at saving *something*; `diagnostics` reports anything that fell back to `raw`/`widget` rather than a native mapping, the same posture §4 already documents for decompiling in general.
+
+`buildSiteProfile()` (`server/src/tools/siteProfile.ts`, EMCP-055) gained a `requireEmissionGeneration` parameter for this task — `save_as_template` calls it with `false`, since `decompile()` never reads `siteProfile.generation` at all (each node's generation comes from its own native shape via `detectNodeGeneration()`) and works on `legacy` content by design. `validate_page_spec`/`apply_page_spec` still call it with the default `true`, since **their** direction (`compile()`) genuinely cannot target a `legacy`-default site.
+
+Neither tool writes a ledger entry (mirroring `create_page`'s own reasoning, §6.9: a new template has no prior state to roll back to). `idempotency_key` on `save_as_template` follows the same pattern EMCP-044/046 established: a retried call under the same key returns the original template rather than saving a duplicate.
+
+Live-verified end to end on `wp-v4-pro`: a genuine round trip — `apply_page_spec` compiled a heading and a button onto a real page, `save_as_template` decompiled that page's actual persisted native elements back into a clean spec (heading text/level and button text preserved; the button's `link`, never written in the first place per its own `NATIVENESS_LOW` warning, correctly absent from the round-tripped spec too, not silently fabricated) — confirmed by reading the stored `spec` column directly, not just trusting the tool's own response. `list_templates` reflected both saved templates with real `source_post_id`s.
 
 ---
 
