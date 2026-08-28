@@ -121,6 +121,7 @@ describe('MCP protocol route', () => {
     expect(json.result.cacheScope).toBe('private');
     expect(typeof json.result.ttlMs).toBe('number');
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
+      'apply_page_spec',
       'create_page',
       'describe_widget',
       'edit_elements',
@@ -136,6 +137,7 @@ describe('MCP protocol route', () => {
       'render_preview',
       'rollback',
       'update_page',
+      'validate_page_spec',
     ]);
   });
 

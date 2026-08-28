@@ -491,13 +491,29 @@ final class DocumentsController {
 	 *
 	 * Each operation is a flat object with `op` as a required enum
 	 * (Blueprints.md §7.2: "not a JSON Schema `oneOf` at item level, which is
-	 * where models reliably produce malformed input"). Only `set_settings`
-	 * exists today — a shallow merge onto one element's existing `settings`,
-	 * not the deep merge `raw` (§2.8) needs. Structural validation (widget
-	 * exists, setting key real, control conditions honoured — EMCP-036) is
-	 * Node's job, run *before* this endpoint is ever called, same as before;
-	 * this endpoint validates what only it can know (does this element id
-	 * exist on this document *right now*), not widget schema.
+	 * where models reliably produce malformed input"). `set_settings` is a
+	 * shallow merge onto one element's existing `settings`, not the deep
+	 * merge `raw` (§2.8) needs. Structural validation (widget exists, setting
+	 * key real, control conditions honoured — EMCP-036) is Node's job, run
+	 * *before* this endpoint is ever called, same as before; this endpoint
+	 * validates what only it can know (does this element id exist on this
+	 * document *right now*), not widget schema.
+	 *
+	 * **`replace_tree` (EMCP-055)** — the second `op`, added exactly the way
+	 * this docblock's own history already anticipated ("the enum has room
+	 * for more without a breaking change"). `apply_page_spec` compiles a
+	 * whole DSL spec into a full native element tree (`server/src/dsl/
+	 * compile.ts`) — that isn't a per-element settings patch, so reusing
+	 * `set_settings` would be dishonest about what's happening. Rather than
+	 * a parallel write route duplicating the lock/hash/autosave-branching
+	 * machinery below, `replace_tree` is a second operation shape sharing
+	 * all of it: `{ op: "replace_tree", elements: [...] }`, required to be
+	 * the *sole* operation in its batch (mixing it with `set_settings`
+	 * operations has no coherent meaning — one replaces the whole tree, the
+	 * other patches one existing element within it). It skips the
+	 * per-operation "does this element id exist" check entirely (there is no
+	 * target id — the whole tree is the target) and calls `Document::save()`
+	 * with the given `elements` verbatim.
 	 *
 	 * **Transaction semantics (Blueprints.md §7.2): all operations validate
 	 * before any apply; the batch is one document save; a failure applies
@@ -540,6 +556,16 @@ final class DocumentsController {
 				'emcp_invalid_operation',
 				__( 'One or more operations are malformed.', 'emcp' ),
 				[ 'status' => 400, 'diagnostics' => $shape_errors ]
+			);
+		}
+
+		$is_replace_tree = isset( $operations[0]['op'] ) && 'replace_tree' === $operations[0]['op'];
+
+		if ( $is_replace_tree && count( $operations ) > 1 ) {
+			return new \WP_Error(
+				'emcp_invalid_operation',
+				__( '"replace_tree" must be the only operation in the batch — it replaces the entire element tree, which has no coherent meaning combined with a per-element "set_settings".', 'emcp' ),
+				[ 'status' => 400 ]
 			);
 		}
 
@@ -624,36 +650,45 @@ final class DocumentsController {
 			);
 		}
 
-		// Validate every operation's target element exists *before* applying
-		// any of them — "all operations validate before any apply".
-		$missing = [];
-		foreach ( $operations as $index => $operation ) {
-			if ( null === $this->find_element( $elements, (string) $operation['element_id'] ) ) {
-				$missing[] = [
-					'path'    => "operations[{$index}]",
-					'code'    => 'ELEMENT_NOT_FOUND',
-					'message' => sprintf(
-						/* translators: %s: element id */
-						__( 'No element with id "%s" exists on this document.', 'emcp' ),
-						$operation['element_id']
-					),
-				];
-			}
-		}
-
-		if ( [] !== $missing ) {
-			return new \WP_Error(
-				'emcp_element_not_found',
-				__( 'One or more operations target an element that does not exist. Nothing was applied.', 'emcp' ),
-				[ 'status' => 404, 'diagnostics' => $missing ]
-			);
-		}
-
 		$results = [];
-		foreach ( $operations as $operation ) {
-			$element_id = (string) $operation['element_id'];
-			$this->merge_settings_into_element( $elements, $element_id, $operation['settings'] );
-			$results[] = [ 'element_id' => $element_id, 'applied' => true ];
+
+		if ( $is_replace_tree ) {
+			// No per-element existence check — there is no target id, the
+			// whole tree is the target. "All operations validate before any
+			// apply" is trivially satisfied: shape validation above already
+			// confirmed "elements" is an array; there's nothing else to check.
+			$elements = $operations[0]['elements'];
+		} else {
+			// Validate every operation's target element exists *before* applying
+			// any of them — "all operations validate before any apply".
+			$missing = [];
+			foreach ( $operations as $index => $operation ) {
+				if ( null === $this->find_element( $elements, (string) $operation['element_id'] ) ) {
+					$missing[] = [
+						'path'    => "operations[{$index}]",
+						'code'    => 'ELEMENT_NOT_FOUND',
+						'message' => sprintf(
+							/* translators: %s: element id */
+							__( 'No element with id "%s" exists on this document.', 'emcp' ),
+							$operation['element_id']
+						),
+					];
+				}
+			}
+
+			if ( [] !== $missing ) {
+				return new \WP_Error(
+					'emcp_element_not_found',
+					__( 'One or more operations target an element that does not exist. Nothing was applied.', 'emcp' ),
+					[ 'status' => 404, 'diagnostics' => $missing ]
+				);
+			}
+
+			foreach ( $operations as $operation ) {
+				$element_id = (string) $operation['element_id'];
+				$this->merge_settings_into_element( $elements, $element_id, $operation['settings'] );
+				$results[] = [ 'element_id' => $element_id, 'applied' => true ];
+			}
 		}
 
 		$document = \Elementor\Plugin::$instance->documents->get( $target_id );
@@ -668,12 +703,29 @@ final class DocumentsController {
 
 		$document->save( [ 'elements' => $elements ] );
 
+		// EMCP-055: re-read the actually-persisted elements rather than
+		// hashing the in-memory `$elements` this method built — `save()`
+		// enriches whatever it's given with fields the caller's own input
+		// may not have carried (confirmed live for a `replace_tree` write of
+		// fresh compiler output: a V4 atomic element without `styles`/
+		// `interactions`/`editor_settings`/`version` gets those added as
+		// `[]`/`"0.0"` defaults by `save()` itself). Hashing the pre-save
+		// `$elements` there would return a `document_hash` that doesn't
+		// match what `GET /documents/{id}` reports one call later — a stale
+		// value baked into the very response meant to hand back "the new
+		// hash". `set_settings` never surfaced this: it only patches
+		// settings on elements that already exist, so those fields were
+		// already present pre-save. Re-reading protects both op shapes with
+		// one fix rather than trusting either not to drift.
+		$saved_elements      = $this->decode_elementor_data( $target_id );
+		$saved_page_settings = $this->decode_json_meta( $target_id, '_elementor_page_settings' );
+
 		return new \WP_REST_Response(
 			[
 				'id'            => $post_id,
 				'source'        => $source,
 				'results'       => $results,
-				'document_hash' => DocumentHasher::hash( $elements, $page_settings ),
+				'document_hash' => DocumentHasher::hash( $saved_elements, $saved_page_settings ),
 			],
 			200
 		);
@@ -694,12 +746,20 @@ final class DocumentsController {
 				continue;
 			}
 
-			if ( ! isset( $operation['op'] ) || 'set_settings' !== $operation['op'] ) {
+			if ( ! isset( $operation['op'] ) || ! in_array( $operation['op'], [ 'set_settings', 'replace_tree' ], true ) ) {
 				$errors[] = [
 					'path'    => "{$path}.op",
 					'code'    => 'DSL_VERSION_UNSUPPORTED',
-					'message' => __( 'Unsupported "op" — only "set_settings" exists today.', 'emcp' ),
+					'message' => __( 'Unsupported "op" — only "set_settings" or "replace_tree" exist today.', 'emcp' ),
 				];
+				continue;
+			}
+
+			if ( 'replace_tree' === $operation['op'] ) {
+				if ( ! isset( $operation['elements'] ) || ! is_array( $operation['elements'] ) ) {
+					$errors[] = [ 'path' => "{$path}.elements", 'code' => 'CONTROL_NOT_FOUND', 'message' => __( 'A "elements" array is required for "replace_tree".', 'emcp' ) ];
+				}
+				continue;
 			}
 
 			if ( ! isset( $operation['element_id'] ) || ! is_string( $operation['element_id'] ) || '' === $operation['element_id'] ) {

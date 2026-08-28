@@ -165,7 +165,11 @@ describe('raw — wired centrally into compile(), same for v3 and v4', () => {
       siteProfile('v3'),
     );
 
-    expect(result.diagnostics).toEqual([]);
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment -- expect.any(String) is untyped by design */
+    expect(result.diagnostics).toEqual([
+      { path: 'elements[0]', severity: 'warning', code: 'NATIVENESS_LOW', message: expect.any(String) },
+    ]);
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
     expect(result.elements[0]?.['settings']).toEqual({ title: 'Hi', title_color: '#ff0000' });
   });
 
@@ -175,7 +179,11 @@ describe('raw — wired centrally into compile(), same for v3 and v4', () => {
       siteProfile('v4'),
     );
 
-    expect(result.diagnostics).toEqual([]);
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment -- expect.any(String) is untyped by design */
+    expect(result.diagnostics).toEqual([
+      { path: 'elements[0]', severity: 'warning', code: 'NATIVENESS_LOW', message: expect.any(String) },
+    ]);
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
     expect(result.elements[0]?.['settings']).toMatchObject({ tag: { $$type: 'string', value: 'h1' } });
   });
 

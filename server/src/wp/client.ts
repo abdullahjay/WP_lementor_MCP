@@ -311,6 +311,83 @@ export async function editElements(
 }
 
 /**
+ * `PUT /wp-json/emcp/v1/documents/{id}` with `op: "replace_tree"`
+ * (Blueprints.md §6.3, EMCP-055) — `apply_page_spec`'s write path. Shares
+ * the same route, lock check, hash CAS, and autosave branching
+ * `editElements()` already exercises via `op: "set_settings"`; the only
+ * difference is the operation shape itself, since `compile()`'s output is
+ * a full element tree, not a per-element settings patch.
+ */
+export async function replaceDocumentTree(
+  postId: number,
+  elements: unknown[],
+  expectedHash: string,
+  options: { overrideLock?: boolean } = {},
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{ id: number; documentHash: string; source: 'parent' | 'autosave' }> {
+  const url = new URL(`/wp-json/emcp/v1/documents/${postId}`, config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      operations: [{ op: 'replace_tree', elements }],
+      document_hash: expectedHash,
+      ...(options.overrideLock !== undefined && { override_lock: options.overrideLock }),
+    }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (423 === response.status) {
+    const lockedBy = isRecord(body) ? body['locked_by'] : undefined;
+    if (!isRecord(lockedBy) || typeof lockedBy['id'] !== 'number') {
+      throw new WordPressApiError(
+        `PUT /documents/${postId} returned a 423 with an unexpected body shape.`,
+        response.status,
+        body,
+      );
+    }
+    const name = typeof lockedBy['name'] === 'string' ? lockedBy['name'] : null;
+    throw new DocumentLockedError(postId, lockedBy['id'], name);
+  }
+
+  if (409 === response.status) {
+    if (!isRecord(body) || typeof body['document_hash'] !== 'string') {
+      throw new WordPressApiError(
+        `PUT /documents/${postId} returned a 409 with an unexpected body shape.`,
+        response.status,
+        body,
+      );
+    }
+    throw new DocumentHashMismatchError(postId, body['document_hash']);
+  }
+
+  const diagnostics = extractDiagnostics(body);
+
+  if (400 === response.status && diagnostics) {
+    throw new InvalidOperationsError(diagnostics);
+  }
+
+  if (!response.ok) {
+    throw new WordPressApiError(`PUT /documents/${postId} returned ${response.status}`, response.status, body);
+  }
+
+  if (!isRecord(body) || typeof body['id'] !== 'number' || typeof body['document_hash'] !== 'string') {
+    throw new WordPressApiError(
+      `PUT /documents/${postId} returned an unexpected body shape.`,
+      response.status,
+      body,
+    );
+  }
+
+  const source = 'autosave' === body['source'] ? 'autosave' : 'parent';
+
+  return { id: body['id'], documentHash: body['document_hash'], source };
+}
+
+/**
  * `POST /wp-json/emcp/v1/documents` (Blueprints.md §6.9, EMCP-046). Always
  * creates a `draft` — there is no `status` input, matching solution.md §5.4's
  * write posture table ("New page → post with `draft` status"); publishing is

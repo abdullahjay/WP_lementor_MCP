@@ -19,6 +19,8 @@ import { editElementsTool } from '../tools/editElements.js';
 import { createPageTool } from '../tools/createPage.js';
 import { updatePageTool } from '../tools/updatePage.js';
 import { publishDraftTool } from '../tools/publishDraft.js';
+import { validatePageSpecTool } from '../tools/validatePageSpec.js';
+import { applyPageSpecTool } from '../tools/applyPageSpec.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -50,6 +52,8 @@ export function buildServer(): FastifyInstance {
   registry.registerTool(createPageTool);
   registry.registerTool(updatePageTool);
   registry.registerTool(publishDraftTool);
+  registry.registerTool(validatePageSpecTool);
+  registry.registerTool(applyPageSpecTool);
   registerMcpRoute(app, registry);
 
   return app;

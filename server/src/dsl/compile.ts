@@ -279,6 +279,28 @@ function compileNodes(
       mergedElement = { ...outcome.element, settings: merged };
     }
 
+    // §3.4: "nativeness and rawRatio are reported... the itemised list of
+    // non-native nodes, each naming the widget that should have been used,
+    // is also the compiler-coverage backlog." One diagnostic per offending
+    // node, not just the two aggregate numbers — a caller (EMCP-055's
+    // apply_page_spec/validate_page_spec) needs to know *which* node, not
+    // just that the tree isn't 100% native.
+    if (node.type === 'html') {
+      diagnostics.push({
+        path,
+        severity: 'warning',
+        code: 'NATIVENESS_LOW',
+        message: `Node at ${path} uses the "html" escape rung, the lowest-nativeness option — check whether a registry widget (via "widget") already covers this before reaching for "html".`,
+      });
+    } else if (node.raw !== undefined) {
+      diagnostics.push({
+        path,
+        severity: 'warning',
+        code: 'NATIVENESS_LOW',
+        message: `Node at ${path} uses "raw" (${node.reason ?? 'no reason given'}) for settings outside the DSL's own modeling.`,
+      });
+    }
+
     const children = node.children
       ? compileNodes(node.children, `${path}.children`, siteProfile, diagnostics, usedIds)
       : [];

@@ -30,4 +30,7 @@ export const LEDGER_ARGS_ALLOWLIST: Readonly<Record<string, readonly string[]>> 
   // content mechanism (Blueprints.md §7.6's own noted follow-up) would need
   // `post_id` for.
   publish_draft: ['post_id'],
+  // EMCP-055: same reasoning — one apply_page_spec call is one document
+  // save (a full-tree replace via "replace_tree") on one post.
+  apply_page_spec: ['post_id'],
 };

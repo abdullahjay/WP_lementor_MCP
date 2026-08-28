@@ -90,6 +90,7 @@ describe('publish_draft', () => {
     expect(captureSnapshotMock).toHaveBeenCalledWith(5, 'parent');
     expect(publishDraftRemoteMock).toHaveBeenCalledWith(5, 'real-token');
     expect(invalidateCacheMock).toHaveBeenCalledWith(5);
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment -- expect.any(String) is untyped by design */
     expect(writeLedgerEntryMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -98,6 +99,7 @@ describe('publish_draft', () => {
         approvalTokenRef: expect.any(String),
       }),
     );
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
   });
 
   it('never records the raw token as approvalTokenRef, only a hash', async () => {
