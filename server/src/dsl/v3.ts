@@ -1,4 +1,4 @@
-import { registerEmitter, type EmitContext, type EmitOutcome } from './compile.js';
+import { registerEmitter, validateBreakpoint, type EmitContext, type EmitOutcome } from './compile.js';
 import type { BoxShorthand, DimensionValue, LayoutProps, SpecNode } from './types.js';
 
 /**
@@ -41,27 +41,60 @@ registerEmitter('html', 'v3', emitHtml);
  * `compile.ts` doesn't track nesting depth for its own purposes, so this
  * emitter derives it from `ctx.path`: a path with no `.children[` segment
  * is top-level.
+ *
+ * `responsive` (EMCP-052) reuses `buildFlexSettings()` once per breakpoint,
+ * merging suffixed keys (`flex_gap_tablet`, confirmed live: Elementor's
+ * own responsive controls append `_<breakpoint>`) into the same settings
+ * object desktop's unsuffixed keys already live in — no separate structure,
+ * matching how a real Elementor-authored responsive container actually
+ * stores it (one flat `settings` object, base keys plus suffixed overrides).
  */
 function emitContainer(node: SpecNode, ctx: EmitContext): EmitOutcome {
   if (node.type !== 'container') throw new Error('unreachable');
 
-  const settings: Record<string, unknown> = {};
-  const diagnostics: EmitOutcome['diagnostics'] = [];
-  const layout = node.layout ?? {};
+  const { settings, diagnostics } = buildFlexSettings(node.layout, undefined, ctx.path);
 
-  if (layout.direction !== undefined) settings['flex_direction'] = layout.direction;
-  if (layout.wrap !== undefined) settings['flex_wrap'] = layout.wrap ? 'wrap' : 'nowrap';
-  if (layout.justify !== undefined) settings['flex_justify_content'] = JUSTIFY_MAP[layout.justify];
-  if (layout.align !== undefined) settings['flex_align_items'] = ALIGN_MAP[layout.align];
-  if (layout.gap !== undefined) settings['flex_gap'] = toGaps(layout.gap);
-  if (layout.padding !== undefined) settings['padding'] = toDimensions(layout.padding);
-  if (layout.margin !== undefined) settings['margin'] = toDimensions(layout.margin);
-  if (layout.minHeight !== undefined) settings['min_height'] = toSize(layout.minHeight);
+  for (const [breakpoint, override] of Object.entries(node.responsive ?? {})) {
+    const breakpointPath = `${ctx.path}.responsive.${breakpoint}`;
+    const diag = validateBreakpoint(breakpoint, ctx.siteProfile, breakpointPath);
+    if (diag) {
+      diagnostics.push(diag);
+      continue;
+    }
 
-  const widthDiag = applyContainerWidth(layout, settings, ctx.path);
-  if (widthDiag) diagnostics.push(widthDiag);
+    const suffixed = buildFlexSettings(override.layout, breakpoint, breakpointPath);
+    Object.assign(settings, suffixed.settings);
+    diagnostics.push(...suffixed.diagnostics);
+  }
 
   return { element: { elType: 'container', settings, isInner: isNestedPath(ctx.path) }, diagnostics };
+}
+
+/** Everything `emitContainer` maps from one `LayoutProps`, at either desktop (`suffix` undefined) or one responsive breakpoint (`suffix` = the breakpoint name). */
+function buildFlexSettings(
+  layout: LayoutProps | undefined,
+  suffix: string | undefined,
+  path: string,
+): { settings: Record<string, unknown>; diagnostics: EmitOutcome['diagnostics'] } {
+  const settings: Record<string, unknown> = {};
+  const diagnostics: EmitOutcome['diagnostics'] = [];
+  const key = (base: string): string => (suffix ? `${base}_${suffix}` : base);
+
+  if (!layout) return { settings, diagnostics };
+
+  if (layout.direction !== undefined) settings[key('flex_direction')] = layout.direction;
+  if (layout.wrap !== undefined) settings[key('flex_wrap')] = layout.wrap ? 'wrap' : 'nowrap';
+  if (layout.justify !== undefined) settings[key('flex_justify_content')] = JUSTIFY_MAP[layout.justify];
+  if (layout.align !== undefined) settings[key('flex_align_items')] = ALIGN_MAP[layout.align];
+  if (layout.gap !== undefined) settings[key('flex_gap')] = toGaps(layout.gap);
+  if (layout.padding !== undefined) settings[key('padding')] = toDimensions(layout.padding);
+  if (layout.margin !== undefined) settings[key('margin')] = toDimensions(layout.margin);
+  if (layout.minHeight !== undefined) settings[key('min_height')] = toSize(layout.minHeight);
+
+  const widthDiag = applyContainerWidth(layout, settings, key, path);
+  if (widthDiag) diagnostics.push(widthDiag);
+
+  return { settings, diagnostics };
 }
 
 /**
@@ -75,12 +108,13 @@ function emitContainer(node: SpecNode, ctx: EmitContext): EmitOutcome {
 function applyContainerWidth(
   layout: LayoutProps,
   settings: Record<string, unknown>,
+  key: (base: string) => string,
   path: string,
 ): EmitOutcome['diagnostics'][number] | undefined {
   if (layout.width === undefined) return undefined;
 
   if (layout.width === 'full' || layout.width === 'boxed') {
-    settings['content_width'] = layout.width;
+    settings[key('content_width')] = layout.width;
     return undefined;
   }
 
@@ -321,4 +355,10 @@ function isNestedPath(path: string): boolean {
  *   `hosted_url`/`external_url`/`videopress_url`) selected by a
  *   `video_type` control — the DSL's single `src` field would need
  *   reliable URL-pattern detection this task didn't build or verify.
+ *
+ * `responsive` (EMCP-052) is implemented only for `container`'s
+ * `layout`-derived settings — the only place this file maps `layout` to
+ * anything in the first place. A content widget's `responsive.<bp>.style`
+ * has no effect (matching `style` being deferred entirely at desktop too,
+ * not a separate gap introduced by EMCP-052).
  */

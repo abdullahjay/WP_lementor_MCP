@@ -59,10 +59,25 @@ export type EmissionGeneration = 'v3' | 'v4';
  * return (`getSiteInfoTool`, `domain/curation.ts`'s `RawWidget`) rather
  * than inventing a parallel shape.
  */
+/**
+ * §2.9 / real `GET /site` shape (`plugin/src/Rest/SiteController.php`,
+ * confirmed live on `wp-v4-pro`): `direction` is `'min'` for widescreen
+ * and `'max'` for every other breakpoint — CLAUDE.md's own gotcha,
+ * carried straight through rather than re-derived. `desktop` is
+ * deliberately absent from this map (it's Elementor's implicit base case,
+ * never itself a configurable named breakpoint) — a `responsive` key of
+ * `"desktop"` is therefore always `BREAKPOINT_UNKNOWN`, correctly.
+ */
+export interface BreakpointConfig {
+  enabled: boolean;
+  direction: 'min' | 'max';
+  value: number;
+}
+
 export interface SiteProfile {
   generation: EmissionGeneration;
   elementorVersion: string | null;
-  breakpoints: Record<string, unknown>;
+  breakpoints: Record<string, BreakpointConfig>;
   /**
    * Token name (without the `@`) → resolved reference. Exact resolution
    * shape is generation-dependent (§2.7) and genuinely unimplemented until
@@ -285,6 +300,35 @@ function generateUniqueId(usedIds: Set<string>): string {
  */
 export function randomHex7(): string {
   return randomBytes(4).toString('hex').slice(0, 7);
+}
+
+/**
+ * §2.9: "Keys are breakpoint names as configured on the target site...
+ * Unknown breakpoint names are an error." Exported for EMCP-052's v3/v4
+ * responsive emission — one shared check so both generations refuse the
+ * same way, against the same real `siteProfile.breakpoints` map, rather
+ * than each independently deciding what "known" means. A breakpoint
+ * that exists but is `enabled: false` is treated as unknown too — a
+ * disabled breakpoint has no real media query on this site, so a spec
+ * targeting it is just as wrong as targeting a name that was never
+ * configured at all.
+ */
+export function validateBreakpoint(name: string, siteProfile: SiteProfile, path: string): Diagnostic | null {
+  const config = siteProfile.breakpoints[name];
+
+  if (config && config.enabled) return null;
+
+  const allowed = Object.entries(siteProfile.breakpoints)
+    .filter(([, c]) => c.enabled)
+    .map(([n]) => n);
+
+  return {
+    path,
+    severity: 'error',
+    code: 'BREAKPOINT_UNKNOWN',
+    message: `"${name}" is not a configured, enabled breakpoint on this site.`,
+    allowed,
+  };
 }
 
 function countNodes(nodes: SpecNode[]): { total: number; htmlCount: number; rawCount: number } {

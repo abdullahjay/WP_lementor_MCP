@@ -181,6 +181,14 @@ Keys are breakpoint names **as configured on the target site**, read from `get_s
 
 Responsive is part of the grammar from v1, not a later addition. Splitting it means re-authoring every fixture.
 
+**Implemented (EMCP-052).** Breakpoint validation is one shared check both generations use — `compile.ts`'s exported `validateBreakpoint()`, checked against `siteProfile.breakpoints`'s real shape (confirmed live, `GET /site` on `wp-v4-pro`: `Record<name, { enabled, direction: 'min'|'max', value }>` — `desktop` is deliberately absent, since it's Elementor's implicit base case, never itself configurable, so `responsive: { desktop: {...} }` is correctly `BREAKPOINT_UNKNOWN` too). A real but currently **disabled** breakpoint (`laptop`/`mobile_extra`/`tablet_extra` on a fresh install) is treated the same as an unconfigured name — a disabled breakpoint has no live media query on the target site, so targeting one is just as wrong.
+
+**The `min`-vs-`max` direction turned out not to be a data-shape concern for the compiler's *output* at all** — confirmed directly from `tests/fixtures/responsive-widescreen.json`'s own provenance note: "the raw `_elementor_data` here only names the breakpoint... does not itself say min-width vs max-width." Both generations treat every breakpoint, including `widescreen`, completely generically: v4 appends one more `{meta:{breakpoint,state:null},props,custom_css:null}` entry to the same flat `variants` array every other breakpoint uses (confirmed live: `widescreen`'s entry in the fixture has the exact same shape as `desktop`'s); v3 appends the same `_<breakpointName>` settings-key suffix mechanism `_tablet`/`_mobile` already used, so `_widescreen` needs no special-casing either. The direction inversion is entirely `Breakpoints_Manager`'s concern when Elementor's own CSS pipeline later reads this data — CLAUDE.md's gotcha is real, but it isn't this compiler's problem to solve.
+
+**Scope matches EMCP-050/051's own limitation, not a new gap:** responsive is only wired for whatever `layout` properties each generation's desktop emission already maps (v3: `container` only; v4: every emitter, since they all route through `withLocalStyle()`). `responsive.<bp>.style` has no effect yet, for the same reason `style` itself is deferred at desktop in both generations.
+
+13 new unit tests (`server/src/dsl/responsive.test.ts`), including one asserting the widescreen variant's exact shape against `responsive-widescreen.json`'s real captured structure, and one confirming the same invalid breakpoint is refused identically on both generations.
+
 ---
 
 ## 3. Compiler contract

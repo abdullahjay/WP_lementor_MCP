@@ -1,4 +1,4 @@
-import { randomHex7, registerEmitter, type EmitContext, type EmitOutcome } from './compile.js';
+import { randomHex7, registerEmitter, validateBreakpoint, type EmitContext, type EmitOutcome } from './compile.js';
 import type { BoxShorthand, DimensionValue, LayoutProps, SpecNode } from './types.js';
 
 /**
@@ -55,7 +55,7 @@ registerEmitter('divider', 'v4', emitDivider);
 function emitFlexbox(node: SpecNode, ctx: EmitContext): EmitOutcome {
   if (node.type !== 'container') throw new Error('unreachable');
 
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     const settings: Record<string, unknown> = {};
     if (classes) settings['classes'] = toTyped('classes', classes);
 
@@ -91,7 +91,7 @@ function emitHeading(node: SpecNode, ctx: EmitContext): EmitOutcome {
   // though the real v4 e-heading widget's own schema supports one. That's
   // a grammar-layer scope decision (EMCP-048), not something this task
   // changes.
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     if (classes) settings['classes'] = toTyped('classes', classes);
     return { element: atomicWidgetElement('e-heading', settings), diagnostics: [] };
   });
@@ -103,7 +103,7 @@ function emitParagraph(node: SpecNode, ctx: EmitContext): EmitOutcome {
 
   const settings: Record<string, unknown> = { paragraph: toHtmlV3(node.html) };
 
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     if (classes) settings['classes'] = toTyped('classes', classes);
     return { element: atomicWidgetElement('e-paragraph', settings), diagnostics: [] };
   });
@@ -115,7 +115,7 @@ function emitButton(node: SpecNode, ctx: EmitContext): EmitOutcome {
 
   const settings: Record<string, unknown> = { text: toHtmlV3(node.text) };
 
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     if (classes) settings['classes'] = toTyped('classes', classes);
     return { element: atomicWidgetElement('e-button', settings), diagnostics: linkWarning(node, ctx) };
   });
@@ -139,7 +139,7 @@ function emitImage(node: SpecNode, ctx: EmitContext): EmitOutcome {
     image: toTyped('image', { src: toTyped('image-src', src), size: toTyped('string', 'full') }),
   };
 
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     if (classes) settings['classes'] = toTyped('classes', classes);
     return { element: atomicWidgetElement('e-image', settings), diagnostics: linkWarning(node, ctx) };
   });
@@ -149,7 +149,7 @@ function emitImage(node: SpecNode, ctx: EmitContext): EmitOutcome {
 function emitDivider(node: SpecNode, ctx: EmitContext): EmitOutcome {
   if (node.type !== 'divider') throw new Error('unreachable');
 
-  return withLocalStyle(node.layout, ctx, (classes) => {
+  return withLocalStyle(node, ctx, (classes) => {
     const settings: Record<string, unknown> = {};
     if (classes) settings['classes'] = toTyped('classes', classes);
     return { element: atomicWidgetElement('e-divider', settings), diagnostics: [] };
@@ -189,20 +189,55 @@ function linkWarning(node: SpecNode, ctx: EmitContext): EmitOutcome['diagnostics
  * type: "class", variants: [...] } }`, confirmed live) for whatever of
  * `layout`'s properties this task could confirm a real style-schema
  * mapping for (`modules/atomic-widgets/styles/style-schema.php`, read
- * directly). One variant only — `{ breakpoint: "desktop", state: null }`
- * — responsive/pseudo-state variants are EMCP-052's job, not this one's.
- * Returns no `styles`/`classes` at all when `layout` gives nothing this
- * emitter knows how to map, matching every uncustomized element in the
- * fixtures (`styles: []`, `classes` absent from `settings` entirely).
+ * directly), plus one additional variant per entry in `responsive`
+ * (EMCP-052) — confirmed live (`tests/fixtures/responsive-widescreen.json`):
+ * every breakpoint, including `widescreen`, is just another entry in the
+ * same flat `variants` array, `{ meta: { breakpoint: <name>, state: null },
+ * props, custom_css: null }` — there is no widescreen-specific shape to
+ * get right here. The `min`-vs-`max` direction CLAUDE.md's gotcha warns
+ * about is Elementor's own `Breakpoints_Manager` concern when it later
+ * generates CSS from this data, not something this compiler's *output
+ * shape* needs to branch on — confirmed by the fixture's own provenance
+ * note ("the raw `_elementor_data` here only names the breakpoint... does
+ * not itself say min-width vs max-width").
+ *
+ * §2.9: "Unknown breakpoint names are an error" — each `responsive` key
+ * is checked against `siteProfile.breakpoints` via `compile.ts`'s shared
+ * `validateBreakpoint()`, the same check EMCP-052 gives v3.
+ *
+ * Returns no `styles`/`classes` at all when there's nothing this emitter
+ * knows how to map anywhere (desktop or responsive), matching every
+ * uncustomized element in the fixtures (`styles: []`, `classes` absent).
  */
 function withLocalStyle(
-  layout: LayoutProps | undefined,
+  node: SpecNode,
   ctx: EmitContext,
   build: (classes: string[] | null) => EmitOutcome,
 ): EmitOutcome {
-  const { props, diagnostics } = buildStyleProps(layout, ctx);
+  const desktop = buildStyleProps(node.layout, ctx);
+  const diagnostics: EmitOutcome['diagnostics'] = [...desktop.diagnostics];
+  const variants: Record<string, unknown>[] = [];
 
-  if (Object.keys(props).length === 0) {
+  if (Object.keys(desktop.props).length > 0) {
+    variants.push({ meta: { breakpoint: 'desktop', state: null }, props: desktop.props, custom_css: null });
+  }
+
+  for (const [breakpoint, override] of Object.entries(node.responsive ?? {})) {
+    const breakpointPath = `${ctx.path}.responsive.${breakpoint}`;
+    const diag = validateBreakpoint(breakpoint, ctx.siteProfile, breakpointPath);
+    if (diag) {
+      diagnostics.push(diag);
+      continue;
+    }
+
+    const { props, diagnostics: propDiagnostics } = buildStyleProps(override.layout, { ...ctx, path: breakpointPath });
+    diagnostics.push(...propDiagnostics);
+    if (Object.keys(props).length > 0) {
+      variants.push({ meta: { breakpoint, state: null }, props, custom_css: null });
+    }
+  }
+
+  if (variants.length === 0) {
     const outcome = build(null);
     return { element: outcome.element, diagnostics: [...diagnostics, ...outcome.diagnostics] };
   }
@@ -217,14 +252,7 @@ function withLocalStyle(
   return {
     element: {
       ...outcome.element,
-      styles: {
-        [className]: {
-          id: className,
-          label: 'local',
-          type: 'class',
-          variants: [{ meta: { breakpoint: 'desktop', state: null }, props, custom_css: null }],
-        },
-      },
+      styles: { [className]: { id: className, label: 'local', type: 'class', variants } },
     },
     diagnostics: [...diagnostics, ...outcome.diagnostics],
   };
@@ -365,4 +393,9 @@ function isNestedPath(path: string): boolean {
  *   `style` object onto them wasn't done within this task's scope.
  * - **`link` (button/heading/image)**: see `linkWarning()` above — the
  *   real `Union_Prop_Type` destination shape isn't confirmed.
+ *
+ * `responsive` (EMCP-052) is implemented for every emitter here, since
+ * they all route through `withLocalStyle()` — but it inherits the same
+ * `layout`-only limitation `buildStyleProps()` has at desktop: a
+ * `responsive.<bp>.style` override has no effect, same reason as above.
  */
