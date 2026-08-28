@@ -1032,6 +1032,55 @@ export async function saveTemplate(
   return { id: body['id'], name: body['name'], createdAt: body['created_at'] };
 }
 
+export class TemplateNotFoundError extends Error {
+  constructor(public readonly templateId: number) {
+    super(`No template exists with id ${templateId}.`);
+  }
+}
+
+/**
+ * `GET /wp-json/emcp/v1/templates/{id}` (Blueprints.md §6.10, EMCP-061) —
+ * the one route that returns a template's full stored `spec`, needed by
+ * `apply_template` to `compile()` it. `listTemplates()` deliberately omits
+ * `spec` (a lightweight listing).
+ */
+export async function getTemplate(
+  templateId: number,
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{ id: number; name: string; spec: unknown; createdAt: string }> {
+  const url = new URL(`/wp-json/emcp/v1/templates/${templateId}`, config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    headers: { authorization: `Basic ${credentials}` },
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (404 === response.status) {
+    throw new TemplateNotFoundError(templateId);
+  }
+
+  if (!response.ok) {
+    throw new WordPressApiError(`GET /templates/${templateId} returned ${response.status}`, response.status, body);
+  }
+
+  if (
+    !isRecord(body) ||
+    typeof body['id'] !== 'number' ||
+    typeof body['name'] !== 'string' ||
+    typeof body['created_at'] !== 'string'
+  ) {
+    throw new WordPressApiError(
+      `GET /templates/${templateId} returned an unexpected body shape.`,
+      response.status,
+      body,
+    );
+  }
+
+  return { id: body['id'], name: body['name'], spec: body['spec'], createdAt: body['created_at'] };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

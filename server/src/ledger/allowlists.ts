@@ -33,4 +33,7 @@ export const LEDGER_ARGS_ALLOWLIST: Readonly<Record<string, readonly string[]>> 
   // EMCP-055: same reasoning — one apply_page_spec call is one document
   // save (a full-tree replace via "replace_tree") on one post.
   apply_page_spec: ['post_id'],
+  // EMCP-061: same write path as apply_page_spec (applyCompiledSpec()),
+  // just spec-sourced from a stored template instead of an inline argument.
+  apply_template: ['post_id'],
 };

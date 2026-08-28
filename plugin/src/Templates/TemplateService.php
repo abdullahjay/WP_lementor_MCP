@@ -117,4 +117,36 @@ final class TemplateService {
 			$rows
 		);
 	}
+
+	/**
+	 * `GET /templates/{id}` (EMCP-061) — the one route that returns a
+	 * template's full stored `spec`, needed by `apply_template` to actually
+	 * `compile()` it. `list_all()` deliberately omits `spec` (a lightweight
+	 * listing, same split `GET /documents` vs. `GET /documents/{id}`
+	 * already establishes) — this is that pair's `{id}` half.
+	 *
+	 * @return array{id: int, name: string, spec: array<string, mixed>, created_at: string}|null
+	 */
+	public function find( int $template_id ): ?array {
+		global $wpdb;
+		$table = self::table_name();
+
+		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->prepare( "SELECT id, name, spec, created_at FROM {$table} WHERE id = %d", $template_id ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			ARRAY_A
+		);
+
+		if ( ! is_array( $row ) ) {
+			return null;
+		}
+
+		$spec = json_decode( (string) $row['spec'], true );
+
+		return [
+			'id'         => (int) $row['id'],
+			'name'       => (string) $row['name'],
+			'spec'       => is_array( $spec ) ? $spec : [],
+			'created_at' => gmdate( 'c', strtotime( $row['created_at'] . ' UTC' ) ),
+		];
+	}
 }

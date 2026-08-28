@@ -490,9 +490,10 @@ Gated on D2 and D4.
 - **ID:** EMCP-060 · **Depends:** EMCP-054 · **Verify:** live
 - Stores specs, not frozen native JSON
 - Done: real site-side storage (`{$wpdb->prefix}emcp_templates`, `plugin/src/Templates/TemplateService.php`, mirroring `SnapshotService`'s pattern) via new `GET/POST /wp-json/emcp/v1/templates` routes, plugin stores `spec` opaquely. `save_as_template` reads native elements → `decompile()` → stores the resulting portable spec, never frozen native JSON. `buildSiteProfile()` gained a `requireEmissionGeneration` flag since `decompile()`, unlike `compile()`, has no generation restriction and works on legacy content by design. Neither tool ledgered (nothing to roll back to, same as `create_page`); `save_as_template` supports `idempotency_key`. Live-verified with a genuine round trip on wp-v4-pro: `apply_page_spec` wrote a heading+button, `save_as_template` decompiled the real persisted content back into a clean spec, confirmed by reading the stored DB row directly.
-#### [ ] Task 61: `apply_template`
+#### [x] Task 61: `apply_template`
 - **ID:** EMCP-061 · **Depends:** EMCP-060 · **Verify:** live
 - Regenerates element IDs
+- Done: shares `apply_page_spec`'s entire write pipeline via a new `server/src/tools/applyCompiledSpec.ts` (document fetch, `compile()`, dry_run short-circuit, snapshot/write/cache-invalidate, ledger, idempotency) — `apply_template.ts` only fetches the template's spec (`GET /templates/{id}`, a new route added for this) and hands off. ID regeneration needed no new code: `compile()` already generates fresh unique ids every call. Live-verified: a template saved from one page applied cleanly to a different page with genuinely fresh element ids, an unknown template_id refused with a 404 before any document read, and a real `apply_template` ledger row confirmed via `list_changes`.
 #### [ ] Task 62: Cross-sandbox portability
 - **ID:** EMCP-062 · **Depends:** EMCP-061 · **Verify:** live
 - `dry_run` reports missing widgets when a Pro-authored template targets the Free sandbox

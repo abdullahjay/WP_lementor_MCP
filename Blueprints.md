@@ -355,6 +355,7 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 | GET | `/global-classes` | v4 classes and variables |
 | GET/POST | `/media` | List / upload |
 | GET/POST | `/templates` | List / save — real table (§6.10, EMCP-060), spec stored opaquely |
+| GET | `/templates/{id}` | One template's full spec (§6.10, EMCP-061) — `apply_template`'s read |
 | POST | `/preview-token` | Signed single-post token (§6.5) |
 | POST | `/snapshots` | Capture prior state |
 | POST | `/snapshots/{id}/restore` | Rollback |
@@ -492,6 +493,8 @@ Live-verified end to end through the real `/mcp` endpoint: `create_page` returne
 
 Cross-site portability (prd.md Task 62, not yet built) comes from the DSL spec itself being generation-agnostic and re-`compile()`-able against whatever site `apply_template` eventually targets — not from centralised storage. Storing frozen native JSON instead would have made every template permanently tied to the generation/registry of whichever site produced it.
 
+**EMCP-061 addendum:** `GET /templates/{id}` — `{id, name, spec, created_at}`, `404` if unknown — added once `apply_template` (§7.9) actually needed a specific template's full `spec`; `list_all()`/`GET /templates` deliberately never returns it (a lightweight listing, same split `GET /documents` vs. `GET /documents/{id}` already establishes).
+
 ---
 
 ## 7. Tool contracts
@@ -618,6 +621,19 @@ save_as_template: { post_id, name, source?, idempotency_key? } → { id, name, c
 Neither tool writes a ledger entry (mirroring `create_page`'s own reasoning, §6.9: a new template has no prior state to roll back to). `idempotency_key` on `save_as_template` follows the same pattern EMCP-044/046 established: a retried call under the same key returns the original template rather than saving a duplicate.
 
 Live-verified end to end on `wp-v4-pro`: a genuine round trip — `apply_page_spec` compiled a heading and a button onto a real page, `save_as_template` decompiled that page's actual persisted native elements back into a clean spec (heading text/level and button text preserved; the button's `link`, never written in the first place per its own `NATIVENESS_LOW` warning, correctly absent from the round-tripped spec too, not silently fabricated) — confirmed by reading the stored `spec` column directly, not just trusting the tool's own response. `list_templates` reflected both saved templates with real `source_post_id`s.
+
+### 7.9 `apply_template`
+
+```
+in:  { post_id, template_id, document_hash, dry_run?, idempotency_key? }
+out: { document_hash, diagnostics[], nativeness, raw_ratio, applied: bool, path: "draft"|"autosave" }
+```
+
+**Implemented (EMCP-061).** Identical output contract to `apply_page_spec` (§7.1) by design — same operation, spec sourced from a stored template (`GET /templates/{id}`, a new route this task added since §6.10's original scope only needed list+save) instead of an inline argument. `server/src/tools/applyCompiledSpec.ts` is the shared write pipeline both tools call: document fetch/autosave-source-resolution, `compile()`, the `dry_run` short-circuit, snapshot/write/cache-invalidate, ledger, idempotency — extracted here rather than duplicated, since the two tools' only real difference is where `spec` comes from. `apply_page_spec.ts`/`apply_template.ts` are now thin: each validates its own input shape, resolves a `Spec`, and hands off.
+
+**"Regenerates element IDs" (prd.md) needed no new code** — `compile()` already generates fresh, whole-tree-unique ids on every call (`generateUniqueId()`, EMCP-049), so applying the same template twice (to the same page or different ones) produces two different id sets simply because each is an independent `compile()` invocation, never a copy of a prior result. Confirmed, not assumed: a unit test applies the same template twice and asserts the resulting element ids differ; live-verified too (see below).
+
+Live-verified end to end on `wp-v4-pro`: a template saved from one page's real content (§7.8's own round-trip test) applied cleanly to a *different*, freshly created draft page — the target page's content matched the template exactly (heading/button text, real `e-heading`/`e-button` widget types) with genuinely fresh element ids (`8b1a1e6`/`b4de8ce`, distinct from the source page's own `43b1180`/`dbe4601`-style ids from earlier in the same session); an unknown `template_id` was refused with a real `404`-derived message before the target document was ever read (`getDocument` confirmed never called); `list_changes` showed a real `apply_template` ledger row with the correct `post_id`, proving the shared write pipeline's ledger/snapshot/idempotency machinery works identically through this second caller, not just through `apply_page_spec`.
 
 ---
 

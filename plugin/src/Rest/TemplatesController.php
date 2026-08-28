@@ -66,4 +66,24 @@ final class TemplatesController {
 
 		return new \WP_REST_Response( $result, 201 );
 	}
+
+	/**
+	 * `GET /templates/{id}` (EMCP-061) — the one route that returns a
+	 * template's full `spec`, needed by `apply_template` to `compile()` it.
+	 */
+	public function show( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$template_id = (int) $request->get_param( 'id' );
+
+		$result = ( new TemplateService() )->find( $template_id );
+
+		if ( null === $result ) {
+			return new \WP_Error(
+				'emcp_template_not_found',
+				__( 'No template exists with that ID.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		return new \WP_REST_Response( $result, 200 );
+	}
 }
