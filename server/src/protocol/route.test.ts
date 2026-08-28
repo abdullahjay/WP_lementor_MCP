@@ -121,6 +121,9 @@ describe('MCP protocol route', () => {
     expect(json.result.cacheScope).toBe('private');
     expect(typeof json.result.ttlMs).toBe('number');
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
+      'apply_page_spec',
+      'apply_template',
+      'create_page',
       'describe_widget',
       'edit_elements',
       'find_elements',
@@ -130,9 +133,14 @@ describe('MCP protocol route', () => {
       'get_site_info',
       'list_changes',
       'list_pages',
+      'list_templates',
       'list_widgets',
+      'publish_draft',
       'render_preview',
       'rollback',
+      'save_as_template',
+      'update_page',
+      'validate_page_spec',
     ]);
   });
 

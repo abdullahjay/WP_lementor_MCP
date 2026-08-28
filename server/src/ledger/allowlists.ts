@@ -25,4 +25,15 @@ export const LEDGER_ARGS_ALLOWLIST: Readonly<Record<string, readonly string[]>> 
   // touch several elements, but `rollback` only ever needs `post_id` — one
   // `edit_elements` call is one document save on one post.
   edit_elements: ['post_id'],
+  // EMCP-047: same reasoning — `publish_draft` mutates exactly one post per
+  // call, and a ledgered publish is what a future rollback-on-published-
+  // content mechanism (Blueprints.md §7.6's own noted follow-up) would need
+  // `post_id` for.
+  publish_draft: ['post_id'],
+  // EMCP-055: same reasoning — one apply_page_spec call is one document
+  // save (a full-tree replace via "replace_tree") on one post.
+  apply_page_spec: ['post_id'],
+  // EMCP-061: same write path as apply_page_spec (applyCompiledSpec()),
+  // just spec-sourced from a stored template instead of an inline argument.
+  apply_template: ['post_id'],
 };

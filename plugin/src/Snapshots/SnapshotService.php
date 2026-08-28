@@ -82,27 +82,41 @@ final class SnapshotService {
 	 * uses — so a caller can tell, without a second round trip, whether
 	 * restoring this snapshot would actually change anything.
 	 *
+	 * `source: 'autosave'` on a post with **no existing autosave** creates
+	 * one (EMCP-045, via Elementor's own `Document::get_autosave( 0, true )`
+	 * — never a hand-rolled `wp_create_post_autosave()` call, which would
+	 * skip Elementor's own `copy_elementor_meta()` step) rather than
+	 * erroring — the write this snapshot precedes (`PUT /documents/{id}`
+	 * on a published post) creates that exact same autosave a moment
+	 * later regardless, via the identical, idempotent Elementor call; capturing
+	 * it first just means the snapshot reflects the real pre-write state
+	 * (a verbatim copy of the parent at this instant) instead of nothing.
+	 *
 	 * @return array{id: int, post_id: int, source: string, hash: string, created_at: string}|\WP_Error
 	 */
 	public function capture( int $post_id, string $source ): array|\WP_Error {
 		$data_owner_id = $post_id;
 
 		if ( 'autosave' === $source ) {
-			$autosave = wp_get_post_autosave( $post_id, get_current_user_id() );
+			$autosave_post = $this->find_or_create_autosave( $post_id );
 
-			if ( ! $autosave instanceof \WP_Post ) {
+			if ( null === $autosave_post ) {
 				return new \WP_Error(
 					'emcp_no_autosave',
-					__( 'No autosave revision exists for this post.', 'emcp' ),
+					__( 'No autosave revision exists for this post, and one could not be created.', 'emcp' ),
 					[ 'status' => 404 ]
 				);
 			}
 
-			$data_owner_id = $autosave->ID;
+			$data_owner_id = $autosave_post->ID;
 		}
 
 		$elementor_data_raw = (string) get_post_meta( $data_owner_id, '_elementor_data', true );
-		$page_settings_raw  = (string) get_post_meta( $post_id, '_elementor_page_settings', true );
+		// `_elementor_page_settings` is copied onto a new autosave too
+		// (Elementor's own `copy_elementor_meta()`) — read from wherever the
+		// data itself came from, not always the parent, so a restore later
+		// writes back to the same place it captured from.
+		$page_settings_raw = (string) get_post_meta( $data_owner_id, '_elementor_page_settings', true );
 
 		$doc_meta = [
 			'edit_mode'     => get_post_meta( $post_id, '_elementor_edit_mode', true ),
@@ -152,13 +166,37 @@ final class SnapshotService {
 	}
 
 	/**
-	 * Writes the snapshot's captured `_elementor_data` back onto the
-	 * snapshot's own `post_id`, directly via `update_post_meta()` — the one
-	 * write path in this plugin that bypasses `Document::save()` entirely
-	 * (CLAUDE.md's slashing gotcha), so `wp_slash()` is applied here,
-	 * immediately before the write, and nowhere else in this class.
+	 * Writes the snapshot's captured `_elementor_data` back onto its actual
+	 * target — the snapshot's own `post_id` for a `'parent'`-sourced
+	 * snapshot, but the post's **current autosave** (created if needed, via
+	 * the same `Document::get_autosave( 0, true )` mechanism `capture()`
+	 * uses) for an `'autosave'`-sourced one (EMCP-045).
 	 *
-	 * @return array{post_id: int, restored: bool, hash: string}|\WP_Error
+	 * Writing an autosave-sourced snapshot to the parent instead would
+	 * silently violate CLAUDE.md's "Saving a published page as a draft
+	 * creates an autosave revision... `_elementor_data` on the parent is
+	 * untouched" invariant — the exact bug this fix closes.
+	 *
+	 * Bypasses `Document::save()` entirely (CLAUDE.md's slashing gotcha),
+	 * so `wp_slash()` is applied here, immediately before the write, and
+	 * nowhere else in this class.
+	 *
+	 * Writes via the low-level `update_metadata( 'post', $target_id, ... )`,
+	 * never the `update_post_meta()` wrapper — confirmed live (EMCP-045):
+	 * `update_post_meta()`/`add_post_meta()`/`delete_post_meta()` in WP core
+	 * (`wp-includes/post.php`) silently redirect a revision post id to its
+	 * *parent* via `wp_is_post_revision()` ("Make sure meta is updated for
+	 * the post, not for a revision") — so calling it with an autosave's own
+	 * post id would write straight back onto the parent, exactly the
+	 * corruption this whole method exists to prevent. `get_post_meta()` has
+	 * no such redirect, which is why `capture()`'s reads were never affected
+	 * — only this write path. Elementor's own `copy_elementor_meta()`
+	 * (`includes/db.php`) hits the identical trap and works around it the
+	 * same way, with the comment "Don't use `update_post_meta` that can't
+	 * handle `revision` post type" — confirmed by reading that source, not
+	 * assumed.
+	 *
+	 * @return array{post_id: int, restored: bool, hash: string, source: string}|\WP_Error
 	 */
 	public function restore( int $snapshot_id ): array|\WP_Error {
 		$row = $this->find( $snapshot_id );
@@ -172,18 +210,34 @@ final class SnapshotService {
 		}
 
 		$post_id = (int) $row['post_id'];
+		$source  = (string) $row['source'];
+		$target_id = $post_id;
 
-		update_post_meta( $post_id, '_elementor_data', wp_slash( $row['elementor_data'] ) );
+		if ( 'autosave' === $source ) {
+			$autosave_post = $this->find_or_create_autosave( $post_id );
+
+			if ( null === $autosave_post ) {
+				return new \WP_Error(
+					'emcp_no_autosave',
+					__( 'No autosave revision exists for this post, and one could not be created.', 'emcp' ),
+					[ 'status' => 404 ]
+				);
+			}
+
+			$target_id = $autosave_post->ID;
+		}
+
+		update_metadata( 'post', $target_id, '_elementor_data', wp_slash( $row['elementor_data'] ) );
 
 		if ( '' !== $row['page_settings'] ) {
-			update_post_meta( $post_id, '_elementor_page_settings', wp_slash( $row['page_settings'] ) );
+			update_metadata( 'post', $target_id, '_elementor_page_settings', wp_slash( $row['page_settings'] ) );
 		}
 
 		$doc_meta = json_decode( $row['doc_meta'], true );
 		if ( is_array( $doc_meta ) ) {
 			foreach ( [ 'edit_mode' => '_elementor_edit_mode', 'template_type' => '_elementor_template_type', 'version' => '_elementor_version' ] as $meta_field => $meta_key ) {
 				if ( isset( $doc_meta[ $meta_field ] ) && '' !== $doc_meta[ $meta_field ] ) {
-					update_post_meta( $post_id, $meta_key, $doc_meta[ $meta_field ] );
+					update_metadata( 'post', $target_id, $meta_key, $doc_meta[ $meta_field ] );
 				}
 			}
 		}
@@ -192,7 +246,41 @@ final class SnapshotService {
 			'post_id'  => $post_id,
 			'restored' => true,
 			'hash'     => $row['hash'],
+			'source'   => $source,
 		];
+	}
+
+	/**
+	 * Finds the post's current autosave revision, creating one via
+	 * Elementor's own `Document::get_autosave( 0, true )` (never a
+	 * hand-rolled `wp_create_post_autosave()` call — that would skip
+	 * Elementor's `copy_elementor_meta()` step, per CLAUDE.md's "introspect
+	 * Elementor, never hardcode" discipline) when none exists yet.
+	 *
+	 * Returns null only if the post itself doesn't resolve to an Elementor
+	 * document (e.g. an invalid post id) — a case the caller turns into a
+	 * 404.
+	 */
+	private function find_or_create_autosave( int $post_id ): ?\WP_Post {
+		if ( ! did_action( 'elementor/loaded' ) || ! class_exists( '\Elementor\Plugin' ) ) {
+			return null;
+		}
+
+		$document = \Elementor\Plugin::$instance->documents->get( $post_id );
+
+		if ( ! $document ) {
+			return null;
+		}
+
+		$autosave = $document->get_autosave( 0, true );
+
+		if ( ! $autosave instanceof \Elementor\Core\Base\Document ) {
+			return null;
+		}
+
+		$autosave_post = $autosave->get_post();
+
+		return $autosave_post instanceof \WP_Post ? $autosave_post : null;
 	}
 
 	/**

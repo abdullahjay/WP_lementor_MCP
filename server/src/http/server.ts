@@ -16,6 +16,14 @@ import { renderPreviewTool } from '../tools/renderPreview.js';
 import { listChangesTool } from '../tools/listChanges.js';
 import { rollbackTool } from '../tools/rollback.js';
 import { editElementsTool } from '../tools/editElements.js';
+import { createPageTool } from '../tools/createPage.js';
+import { updatePageTool } from '../tools/updatePage.js';
+import { publishDraftTool } from '../tools/publishDraft.js';
+import { validatePageSpecTool } from '../tools/validatePageSpec.js';
+import { applyPageSpecTool } from '../tools/applyPageSpec.js';
+import { listTemplatesTool } from '../tools/listTemplates.js';
+import { saveAsTemplateTool } from '../tools/saveAsTemplate.js';
+import { applyTemplateTool } from '../tools/applyTemplate.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -44,6 +52,14 @@ export function buildServer(): FastifyInstance {
   registry.registerTool(renderPreviewTool);
   registry.registerTool(listChangesTool);
   registry.registerTool(rollbackTool);
+  registry.registerTool(createPageTool);
+  registry.registerTool(updatePageTool);
+  registry.registerTool(publishDraftTool);
+  registry.registerTool(validatePageSpecTool);
+  registry.registerTool(applyPageSpecTool);
+  registry.registerTool(listTemplatesTool);
+  registry.registerTool(saveAsTemplateTool);
+  registry.registerTool(applyTemplateTool);
   registerMcpRoute(app, registry);
 
   return app;

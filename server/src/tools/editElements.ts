@@ -212,7 +212,37 @@ export const editElementsTool: ToolImplementation = {
         }
       }
 
-      const document = await getDocument(postId);
+      // EMCP-045: a published post's write lands on its live autosave, never
+      // the parent directly (CLAUDE.md — "Saved successfully" for a
+      // published page means the autosave changed, parent untouched). The
+      // structural-validation read and the pre-write snapshot must both use
+      // that same source PUT /documents/{id} will actually write to, or the
+      // CAS hash Node computes here won't match what the plugin computes
+      // server-side. Determine it the same way the plugin's update() does:
+      // parent status === 'publish' → try the autosave, falling back to the
+      // parent-fetched document only when no autosave exists yet (a 404) —
+      // which is exactly the state PUT will also see and create fresh.
+      const parentDocument = await getDocument(postId);
+      const isPublished = parentDocument['status'] === 'publish';
+
+      let document = parentDocument;
+      let source: 'parent' | 'autosave' = 'parent';
+
+      if (isPublished) {
+        try {
+          document = await getDocument(postId, { source: 'autosave' });
+          source = 'autosave';
+        } catch (error) {
+          if (!(error instanceof WordPressApiError) || error.status !== 404) {
+            throw error;
+          }
+          // No autosave exists yet — fall back to the parent-fetched
+          // document, matching what the plugin's own update() falls back
+          // to when it creates the autosave as a verbatim copy of the
+          // parent at write time.
+        }
+      }
+
       const elements = Array.isArray(document['elements']) ? (document['elements'] as ElementorNode[]) : [];
       const currentHash = typeof document['document_hash'] === 'string' ? document['document_hash'] : '';
 
@@ -267,7 +297,7 @@ export const editElementsTool: ToolImplementation = {
         };
       }
 
-      const snapshot = await captureSnapshot(postId, 'parent');
+      const snapshot = await captureSnapshot(postId, source);
       const written = await editElementsRemote(postId, operations, expectedHash, { overrideLock });
       await invalidateCache(postId);
 
