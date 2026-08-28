@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { RawWidget } from '../domain/curation.js';
 import type { ElementorNode } from '../domain/detect.js';
 import type { Diagnostic } from '../domain/validate.js';
+import { mergeRaw } from './raw.js';
 import type { Spec, SpecNode, SpecNodeType } from './types.js';
 
 /**
@@ -40,6 +41,14 @@ import type { Spec, SpecNode, SpecNodeType } from './types.js';
  * rule (§2.1) and `parseSpec`'s all-or-nothing behavior (EMCP-048): a
  * single unimplemented or invalid node fails the *whole* compile
  * (`elements: []`), not a partial tree with that node missing.
+ *
+ * **`raw` supervision (EMCP-053, `./raw.js`) is wired in centrally, here,
+ * after every emitter runs** — never per-emitter, per-generation. The
+ * mechanics (deep merge, reserved-key denylist, §8.3 sanitisation) don't
+ * vary by v3 vs v4, only where the merged result lands (`settings`, the
+ * one place every generation keeps its own per-node data). A rejected
+ * `raw` block is an error, following the same all-or-nothing rule as
+ * everything else in this file.
  */
 
 /**
@@ -253,12 +262,29 @@ function compileNodes(
       continue;
     }
 
+    let mergedElement = outcome.element;
+
+    // §2.8 (EMCP-053): applied once, centrally, after every emitter —
+    // never per-emitter, per-generation, since the mechanics (deep merge,
+    // denylist, sanitisation) don't vary by generation, only where the
+    // result lands (`settings`, every generation's own per-node data).
+    if (node.raw !== undefined) {
+      const { merged, diagnostics: rawDiagnostics } = mergeRaw(
+        (outcome.element.settings as Record<string, unknown>) ?? {},
+        node.raw,
+        `${path}.raw`,
+        siteProfile.generation,
+      );
+      diagnostics.push(...rawDiagnostics);
+      mergedElement = { ...outcome.element, settings: merged };
+    }
+
     const children = node.children
       ? compileNodes(node.children, `${path}.children`, siteProfile, diagnostics, usedIds)
       : [];
 
     const element: ElementorNode = {
-      ...outcome.element,
+      ...mergedElement,
       id: elementId,
       elements: children,
     };

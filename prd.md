@@ -455,9 +455,10 @@ Coarse until READ LAYER completes.
 - **In this section, not later.** Widescreen `min-width` inversion covered by its own fixture
 - Done: `compile.ts`'s new `validateBreakpoint()` (exported, shared by both generations) checks `responsive` keys against the real `siteProfile.breakpoints` shape (confirmed live: `desktop` absent — never itself configurable; a real-but-disabled breakpoint treated as unknown too). v3 (`container` only, matching its existing `layout`-only scope) emits `_<breakpoint>`-suffixed settings keys; v4 (every emitter) appends one more `{meta,props,custom_css}` entry to the same flat `variants` array. Confirmed against `responsive-widescreen.json`'s own provenance note: `min`-vs-`max` direction is Elementor's own CSS-generation concern, not something the compiler's *output shape* needs to branch on — widescreen needs no special-casing in either generation. 13 new unit tests.
 
-#### [ ] Task 53: `raw` supervision
+#### [x] Task 53: `raw` supervision
 - **ID:** EMCP-053 · **Depends:** EMCP-049 · **Verify:** unit
 - Deep merge, reserved-key denylist, value sanitisation, mandatory `reason`, `raw_ratio` reported
+- Done: `server/src/dsl/raw.ts`'s `mergeRaw()`, wired centrally into `compile.ts` after every emitter runs (mechanics don't vary by generation, only where the result lands — `settings`). Real recursive deep merge (raw wins on conflicts); denylist (`__globals__`/`__dynamic__`/`_element_id` universal, plus v4-only `classes` since `v4.ts` owns that key for style linkage) checked at every nesting depth; all five §8.3 sanitisation rules applied to every string value in the tree. Every violation is a hard error (all-or-nothing, matching `dslVersion`/`parseSpec`) except the external-URL rule, genuinely a warning per the spec's own wording. `reason`/`raw_ratio` were already done (EMCP-048/049) and untouched here. 27 new unit tests, including end-to-end `compile()` tests through the real v3/v4 emitters.
 
 #### [ ] Task 54: Decompiler and round-trip
 - **ID:** EMCP-054 · **Depends:** EMCP-050, EMCP-051 · **Verify:** unit
