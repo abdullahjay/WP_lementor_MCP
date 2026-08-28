@@ -132,6 +132,7 @@ describe('MCP protocol route', () => {
       'get_page_structure',
       'get_site_info',
       'list_changes',
+      'list_media',
       'list_pages',
       'list_templates',
       'list_widgets',
@@ -140,6 +141,7 @@ describe('MCP protocol route', () => {
       'rollback',
       'save_as_template',
       'update_page',
+      'upload_media',
       'validate_page_spec',
     ]);
   });

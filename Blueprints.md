@@ -353,7 +353,7 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 | POST | `/documents/{id}/publish` | Promote autosave onto parent, approval-token gated (§7.5) |
 | GET | `/kit` | Global styles |
 | GET | `/global-classes` | v4 classes and variables |
-| GET/POST | `/media` | List / upload |
+| GET/POST | `/media` | List / upload — URL fetch (SSRF-hardened) or direct multipart, §6.11, EMCP-063 |
 | GET/POST | `/templates` | List / save — real table (§6.10, EMCP-060), spec stored opaquely |
 | GET | `/templates/{id}` | One template's full spec (§6.10, EMCP-061) — `apply_template`'s read |
 | POST | `/preview-token` | Signed single-post token (§6.5) |
@@ -494,6 +494,22 @@ Live-verified end to end through the real `/mcp` endpoint: `create_page` returne
 Cross-site portability (prd.md Task 62, not yet built) comes from the DSL spec itself being generation-agnostic and re-`compile()`-able against whatever site `apply_template` eventually targets — not from centralised storage. Storing frozen native JSON instead would have made every template permanently tied to the generation/registry of whichever site produced it.
 
 **EMCP-061 addendum:** `GET /templates/{id}` — `{id, name, spec, created_at}`, `404` if unknown — added once `apply_template` (§7.9) actually needed a specific template's full `spec`; `list_all()`/`GET /templates` deliberately never returns it (a lightweight listing, same split `GET /documents` vs. `GET /documents/{id}` already establishes).
+
+### 6.11 Media
+
+**Implemented (EMCP-063), resolving D1** ("reference-design ingestion — URL vs out-of-band upload" — resolved as **both**). `GET /media` → `{media: [{id, url, filename, mime_type, created_at}]}`. `POST /media` accepts exactly one of `{ url, filename? }` (server-side fetch) or a multipart `file` field — never both, never neither. Every real validation step (solution.md §9.7, implemented literally, not just cited) runs identically for both paths in `plugin/src/Media/MediaService.php`:
+
+- **Content-derived MIME, not extension-based.** Every payload is sniffed with `finfo` (`FILEINFO_MIME_TYPE`) before anything about its filename or declared `Content-Type` is trusted.
+- **Category-based denial, not SVG alone.** An explicit denylist (`image/svg+xml`, `text/html`, `application/xhtml+xml`, `text/xml`, `application/xml`, `application/pdf`, plus PHP MIME variants) checked against the *sniffed* type.
+- **Decoded pixel cap** (~40 megapixels) against decompression-bomb-style images, via `getimagesizefromstring()`.
+- **EXIF stripped** by round-tripping raster images through GD (`imagecreatefromstring()` → re-encode) — GD never preserves EXIF, so this is stripping via a lossless-for-the-purpose side effect of re-encoding, not a dedicated EXIF parser. Best-effort: an image GD can't decode keeps its original bytes rather than failing the whole upload.
+- **Unique filenames** via WordPress's own `wp_unique_filename()`.
+
+**The URL path is SSRF-hardened per solution.md §9.5, implemented as a manual per-hop redirect loop** (`fetch_url_safely()`), not delegated to WordPress's native redirect-following (which would follow a `Location` header to an internal address without re-validating it — exactly the gap §9.5 calls out). Each hop: `validate_url_safe()` rejects non-`http(s)` schemes, then resolves the host and rejects it via `filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)` — the standard PHP idiom for "not RFC1918, not loopback/link-local/reserved," not a hand-rolled CIDR list — *before* the request for that hop is even made. `redirection => 0` on every `wp_remote_get()` call disables native following entirely; a 3xx response's `Location` header becomes the next loop iteration's URL, re-validated from scratch.
+
+**Node side, D1's "URL" half:** `upload_media` (`{url, filename?} → {id, url, filename, mime_type, width, height}`) — the only ingestion shape an MCP tool can offer at all, since tool inputs are JSON and a model cannot re-emit an image it was shown as bytes. **D1's "out-of-band" half needs no MCP tool** — a human calls `POST /media` directly with a multipart `file`, bypassing the model entirely; `list_media` (`{} → {media: [...]}`) is how the model discovers what an out-of-band upload produced, doubling as the general listing tool.
+
+Live-verified on `wp-v4-pro`, adversarially, not just the happy path: a URL that redirects through a public host to `http://127.0.0.1/wp-login.php` was blocked at the *second* hop (proving per-redirect revalidation, not just entry-URL checking); direct requests to a loopback address, the cloud-metadata link-local address (`169.254.169.254`), and an internal Docker service hostname (`db-wp`, which resolves to a private container IP) were all blocked with the same `emcp_ssrf_blocked` diagnosis; a `file://` URL was rejected on scheme alone; an SVG payload containing a `<script>` tag, uploaded with a spoofed `.jpg` extension and a spoofed `image/jpeg` declared `Content-Type` via direct multipart upload, was correctly detected as `image/svg+xml` by content sniffing and rejected — extension and declared type were both wrong, and neither was trusted. A genuine image succeeded via both paths (URL fetch through a redirect; direct multipart upload), with real dimensions extracted and a real attachment created, confirmed via `list_media` showing both. EXIF stripping's code path was not independently live-confirmed against a source image carrying real EXIF data — noted as an honest gap, not silently assumed correct.
 
 ---
 
@@ -646,6 +662,19 @@ Reproduced live using a second `mcp` container instance pointed at `wp-v3-free` 
 - A spec using the `widget` escape rung with a genuinely v4-only widget (`e-heading`, absent from `wp-v3-free`'s real 141-widget registry — confirmed via `list_widgets`, only `e-component` among `e-`-prefixed names exists there) was refused by `validate_page_spec` with `WIDGET_NOT_AVAILABLE`, naming the widget and listing the site's real `allowed` registry.
 - The same spec through `apply_page_spec`'s `dry_run: true` against a real `wp-v3-free` draft page was refused identically (`applied: false`) — confirmed via a follow-up `get_page_structure` that the page's `document_hash` and `elements` were completely unchanged, proving `dry_run` genuinely never reached the write path, not just that it reported `applied: false`.
 - **The positive case, not just the negative one:** the *exact* spec `save_as_template` had decompiled from a real `wp-v4-pro` page (§7.8, using the DSL's generation-agnostic `heading`/`button` node types, not the `widget` escape rung) validated cleanly (`valid: true`, `nativeness: 1`) against `wp-v3-free`, and — applied for real — produced native `elType: "widget", widgetType: "heading"`/`"button"` elements (`generation: "v3"`, confirmed via `get_page_structure`), the site's real legacy widgets, not `e-heading`/`e-button`. Same content, correctly re-targeted per-site by `compile()`'s own generation dispatch — this is the actual value cross-sandbox portability is for, and it works.
+
+### 7.11 `upload_media` / `list_media`
+
+```
+list_media:   {} → { media: [{id, url, filename, mime_type, created_at}] }
+upload_media: { url, filename? } → { id, url, filename, mime_type, width, height }
+```
+
+**Implemented (EMCP-063).** `upload_media` is the URL half of D1's resolution — the only ingestion shape an MCP tool input (JSON) can carry. `list_media` is deliberately also how a human's **out-of-band** upload (a direct multipart `POST /media`, §6.11) becomes visible to the model — there is no separate "notify the model of an out-of-band upload" mechanism; `list_media` already shows every attachment regardless of how it arrived.
+
+Every real security control (content-derived MIME sniffing, category-based denial, SSRF-hardened URL fetch with per-redirect revalidation, pixel-dimension cap, EXIF strip, unique filenames) lives plugin-side (`MediaService`, §6.11) — this tool layer is thin, matching every other read/write split this project has already established.
+
+Live-verified adversarially on `wp-v4-pro` — see §6.11 for the full list (SSRF across four address classes including mid-redirect, `file://` scheme rejection, a `<script>`-carrying SVG rejected despite a spoofed `.jpg` extension and `image/jpeg` `Content-Type`, and successful uploads via both the URL and direct-multipart paths, confirmed visible together in one `list_media` call).
 
 ---
 

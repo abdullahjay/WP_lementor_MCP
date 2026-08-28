@@ -21,7 +21,7 @@ Not loop tasks. These need a human and gate the tasks named.
 
 | # | Decision | Gates |
 |---|---|---|
-| D1 | Reference-design ingestion — URL vs out-of-band upload (`Blueprints.md` §12.2) | EMCP-063..066, and every visual criterion until settled |
+| D1 | ~~Reference-design ingestion — URL vs out-of-band upload~~ **RESOLVED 2026-08-28: both.** `upload_reference_design` accepts a URL (server-side fetch, egress-filtered/SSRF-hardened the same way `upload_media`'s URL path is — solution.md §9.5: block RFC1918/loopback/link-local, re-check after every redirect, allowlist `http(s)` only) *and* an out-of-band upload path for the pasted-into-chat-mockup case a model genuinely cannot re-emit as bytes. Mechanism for the out-of-band path is EMCP-064's own design question — deliberately not settled here, mirroring D3's own two-step resolution (channel chosen first, exact implementation in the task itself). | EMCP-063..066 (unblocked) |
 | D2 | IdP selection against `solution.md` §9.3 | EMCP-056..059. Long lead time — start now |
 | D3 | ~~Approval channel for `publish_draft` (Slack recommended)~~ **RESOLVED 2026-08-28: a wp-admin approval screen** (`plugin/src/Admin/PublishApprovalPage.php`), not Slack/email — needs no new external service/credentials and satisfies "a channel the model cannot write to" for free, since this server only ever holds an Application Password, never a WordPress cookie session. See EMCP-047. | EMCP-047 (unblocked) |
 | D4 | Production hosting — KMS, network segmentation, TLS | EMCP-056..059, deployment |
@@ -501,13 +501,14 @@ Gated on D2 and D4.
 
 ### INGESTION AND COMPARISON
 
-Gated on D1.
+~~Gated on D1.~~ Unblocked 2026-08-28 — see the decision table above.
 
-#### [ ] Task 63: `upload_media` and `list_media`
+#### [x] Task 63: `upload_media` and `list_media`
 - **ID:** EMCP-063 · **Depends:** EMCP-004 · **Verify:** live
 - Content-derived MIME validation; category-based denial, not SVG alone; decoded pixel caps; EXIF stripped; unique filenames
+- Done: `plugin/src/Media/MediaService.php` runs the full solution.md §9.7 checklist for both ingestion paths (URL fetch, direct multipart). SSRF hardening (§9.5) via a manual per-hop redirect loop (`redirection => 0`, `FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE` on the resolved IP at every hop, not just the entry URL). `upload_media`/`list_media` MCP tools cover D1's "URL" half; the "out-of-band" half needs no tool at all — a human calls `POST /media` directly, `list_media` surfaces the result. Live-verified adversarially: SSRF blocked across loopback/link-local-metadata/internal-hostname/file-scheme, a redirect-to-loopback caught mid-chain, an SVG-with-script payload rejected despite a spoofed .jpg extension and Content-Type (content-derived, not extension-based, proven not just claimed), and real uploads succeeding via both paths.
 #### [ ] Task 64: `upload_reference_design`
-- **ID:** EMCP-064 · **Depends:** D1 · **Verify:** live
+- **ID:** EMCP-064 · **Depends:** D1 (resolved 2026-08-28: URL + out-of-band, both) · **Verify:** live
 #### [ ] Task 65: `extract_design_tokens`
 - **ID:** EMCP-065 · **Depends:** EMCP-029 · **Verify:** live
 - Perceptual colour distance, not string comparison; reconciles against existing kit tokens

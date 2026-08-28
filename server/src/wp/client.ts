@@ -1081,6 +1081,81 @@ export async function getTemplate(
   return { id: body['id'], name: body['name'], spec: body['spec'], createdAt: body['created_at'] };
 }
 
+/**
+ * `GET /wp-json/emcp/v1/media` (Blueprints.md §6, EMCP-063).
+ */
+export async function listMedia(
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<Record<string, unknown>> {
+  const url = new URL('/wp-json/emcp/v1/media', config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    headers: { authorization: `Basic ${credentials}` },
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new WordPressApiError(`GET /media returned ${response.status}`, response.status, body);
+  }
+
+  if (!isRecord(body)) {
+    throw new WordPressApiError('GET /media returned a non-object body.', response.status, body);
+  }
+
+  return body;
+}
+
+/**
+ * `POST /wp-json/emcp/v1/media` with `{ url, filename? }` (Blueprints.md
+ * §6, EMCP-063) — the only ingestion shape an MCP tool can offer, since
+ * tool inputs are JSON and a model cannot supply raw file bytes (D1,
+ * solution.md §9.7). Direct multipart upload is the out-of-band half of
+ * D1's resolution — a human calls this same route with a `file` field
+ * directly, never through the model; `listMedia()` is how the model later
+ * discovers what an out-of-band upload produced.
+ */
+export async function uploadMediaFromUrl(
+  sourceUrl: string,
+  filename: string | undefined,
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{ id: number; url: string; filename: string; mimeType: string; width: number | null; height: number | null }> {
+  const endpoint = new URL('/wp-json/emcp/v1/media', config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ url: sourceUrl, ...(filename !== undefined && { filename }) }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new WordPressApiError(`POST /media returned ${response.status}`, response.status, body);
+  }
+
+  if (
+    !isRecord(body) ||
+    typeof body['id'] !== 'number' ||
+    typeof body['url'] !== 'string' ||
+    typeof body['filename'] !== 'string' ||
+    typeof body['mime_type'] !== 'string'
+  ) {
+    throw new WordPressApiError('POST /media returned an unexpected body shape.', response.status, body);
+  }
+
+  return {
+    id: body['id'],
+    url: body['url'],
+    filename: body['filename'],
+    mimeType: body['mime_type'],
+    width: typeof body['width'] === 'number' ? body['width'] : null,
+    height: typeof body['height'] === 'number' ? body['height'] : null,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
