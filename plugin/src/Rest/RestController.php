@@ -49,6 +49,16 @@ final class RestController {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/documents',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ new DocumentsController(), 'create' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/documents/(?P<id>\d+)',
 			[
 				'methods'             => \WP_REST_Server::READABLE,
@@ -63,6 +73,26 @@ final class RestController {
 			[
 				'methods'             => \WP_REST_Server::EDITABLE,
 				'callback'            => [ new DocumentsController(), 'update' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/documents/(?P<id>\d+)/page',
+			[
+				'methods'             => \WP_REST_Server::EDITABLE,
+				'callback'            => [ new DocumentsController(), 'update_attributes' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/documents/(?P<id>\d+)/publish',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ new DocumentsController(), 'publish' ],
 				'permission_callback' => [ Capabilities::class, 'can_read' ],
 			]
 		);

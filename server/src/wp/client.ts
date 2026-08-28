@@ -218,7 +218,12 @@ export async function editElements(
   expectedHash: string,
   options: { overrideLock?: boolean } = {},
   config: WordPressSiteConfig = loadWordPressSiteConfig(),
-): Promise<{ id: number; documentHash: string; results: Array<{ elementId: string; applied: boolean }> }> {
+): Promise<{
+  id: number;
+  documentHash: string;
+  results: Array<{ elementId: string; applied: boolean }>;
+  source: 'parent' | 'autosave';
+}> {
   const url = new URL(`/wp-json/emcp/v1/documents/${postId}`, config.baseUrl);
   const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
 
@@ -300,7 +305,253 @@ export async function editElements(
     return { elementId: r['element_id'], applied: r['applied'] };
   });
 
-  return { id: body['id'], documentHash: body['document_hash'], results };
+  const source = 'autosave' === body['source'] ? 'autosave' : 'parent';
+
+  return { id: body['id'], documentHash: body['document_hash'], results, source };
+}
+
+/**
+ * `POST /wp-json/emcp/v1/documents` (Blueprints.md §6.9, EMCP-046). Always
+ * creates a `draft` — there is no `status` input, matching solution.md §5.4's
+ * write posture table ("New page → post with `draft` status"); publishing is
+ * `publish_draft`'s job (EMCP-047), not this route's.
+ */
+export class InvalidPostTypeError extends Error {
+  constructor(public readonly postType: string) {
+    super(`Post type "${postType}" does not exist or does not support Elementor.`);
+  }
+}
+
+export class InvalidPageTemplateError extends Error {
+  constructor(public readonly pageTemplate: string) {
+    super(`"${pageTemplate}" is not a valid page template for this post type.`);
+  }
+}
+
+export async function createDocument(
+  title: string,
+  options: { postType?: string | undefined; pageTemplate?: string | undefined } = {},
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{
+  id: number;
+  status: string;
+  type: string;
+  link: string;
+  editUrl: string;
+  pageTemplate: string;
+  documentHash: string;
+}> {
+  const url = new URL('/wp-json/emcp/v1/documents', config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      ...(options.postType !== undefined && { post_type: options.postType }),
+      ...(options.pageTemplate !== undefined && { page_template: options.pageTemplate }),
+    }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (400 === response.status && isRecord(body) && 'emcp_invalid_post_type' === body['code']) {
+    throw new InvalidPostTypeError(options.postType ?? 'page');
+  }
+
+  if (400 === response.status && isRecord(body) && 'emcp_invalid_page_template' === body['code']) {
+    throw new InvalidPageTemplateError(options.pageTemplate ?? 'default');
+  }
+
+  if (!response.ok) {
+    throw new WordPressApiError(`POST /documents returned ${response.status}`, response.status, body);
+  }
+
+  if (
+    !isRecord(body) ||
+    typeof body['id'] !== 'number' ||
+    typeof body['status'] !== 'string' ||
+    typeof body['type'] !== 'string' ||
+    typeof body['link'] !== 'string' ||
+    typeof body['edit_url'] !== 'string' ||
+    typeof body['page_template'] !== 'string' ||
+    typeof body['document_hash'] !== 'string'
+  ) {
+    throw new WordPressApiError('POST /documents returned an unexpected body shape.', response.status, body);
+  }
+
+  return {
+    id: body['id'],
+    status: body['status'],
+    type: body['type'],
+    link: body['link'],
+    editUrl: body['edit_url'],
+    pageTemplate: body['page_template'],
+    documentHash: body['document_hash'],
+  };
+}
+
+/**
+ * `PUT /wp-json/emcp/v1/documents/{id}/page` (Blueprints.md §6.9, EMCP-046).
+ * Deliberately a separate route from `PUT /documents/{id}` (`editElements`
+ * above) — title/page-template are real post attributes with no autosave
+ * concept, unlike the element tree `edit_elements` writes; no document-hash
+ * CAS applies here for the same reason.
+ */
+export async function updateDocumentAttributes(
+  postId: number,
+  attributes: { title?: string | undefined; pageTemplate?: string | undefined },
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<{ id: number; title: string; pageTemplate: string; status: string; link: string }> {
+  const url = new URL(`/wp-json/emcp/v1/documents/${postId}/page`, config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...(attributes.title !== undefined && { title: attributes.title }),
+      ...(attributes.pageTemplate !== undefined && { page_template: attributes.pageTemplate }),
+    }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (400 === response.status && isRecord(body) && 'emcp_invalid_page_template' === body['code']) {
+    throw new InvalidPageTemplateError(attributes.pageTemplate ?? '');
+  }
+
+  if (404 === response.status && isRecord(body) && 'emcp_document_not_found' === body['code']) {
+    throw new WordPressApiError(`No document exists with id ${postId}.`, response.status, body);
+  }
+
+  if (!response.ok) {
+    throw new WordPressApiError(
+      `PUT /documents/${postId}/page returned ${response.status}`,
+      response.status,
+      body,
+    );
+  }
+
+  if (
+    !isRecord(body) ||
+    typeof body['id'] !== 'number' ||
+    typeof body['title'] !== 'string' ||
+    typeof body['page_template'] !== 'string' ||
+    typeof body['status'] !== 'string' ||
+    typeof body['link'] !== 'string'
+  ) {
+    throw new WordPressApiError(
+      `PUT /documents/${postId}/page returned an unexpected body shape.`,
+      response.status,
+      body,
+    );
+  }
+
+  return {
+    id: body['id'],
+    title: body['title'],
+    pageTemplate: body['page_template'],
+    status: body['status'],
+    link: body['link'],
+  };
+}
+
+/**
+ * Blueprints.md §7.5: `publish_draft`'s confirmation token is bound to
+ * `(site, post_id, content_hash)` and obtainable "only through a channel
+ * the model cannot write to" — the plugin's wp-admin approval screen
+ * (EMCP-047 / D3), never this REST route. A stale approval (content
+ * changed since it was issued) is a distinct failure from an
+ * invalid/expired/reused one — surfaced as its own error class so a caller
+ * can tell "get a fresh approval" apart from "you never had one."
+ */
+export class ApprovalTokenInvalidError extends Error {
+  constructor(public readonly reason: string) {
+    super(`Approval token rejected: ${reason}`);
+  }
+}
+
+export class ApprovalContentChangedError extends Error {
+  constructor(public readonly postId: number) {
+    super(`Post ${postId}'s content has changed since this approval was issued. Get a fresh approval.`);
+  }
+}
+
+/**
+ * `POST /wp-json/emcp/v1/documents/{id}/publish` (Blueprints.md §7.5,
+ * EMCP-047). Omitting `confirmationToken` is the normal first call — the
+ * plugin responds with a `pending` state and the approval URL rather than
+ * an error, which this function surfaces as `{ published: false, ... }`,
+ * not a thrown error (a caller checks `.published`, same shape either way).
+ * A rejected/expired/reused/wrong-post token, or a token whose bound
+ * content hash no longer matches, throws instead — those are genuine
+ * failures a retry-without-fixing-the-input won't resolve.
+ */
+export async function publishDraft(
+  postId: number,
+  confirmationToken?: string,
+  config: WordPressSiteConfig = loadWordPressSiteConfig(),
+): Promise<
+  | { published: true; status: string; url: string }
+  | { published: false; status: 'pending'; message: string; approvalUrl: string }
+> {
+  const url = new URL(`/wp-json/emcp/v1/documents/${postId}/publish`, config.baseUrl);
+  const credentials = Buffer.from(`${config.username}:${config.applicationPassword}`).toString('base64');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { authorization: `Basic ${credentials}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...(confirmationToken !== undefined && { confirmation_token: confirmationToken }) }),
+  });
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (409 === response.status && isRecord(body) && 'emcp_approval_content_changed' === body['code']) {
+    throw new ApprovalContentChangedError(postId);
+  }
+
+  if (403 === response.status && isRecord(body) && typeof body['code'] === 'string' && body['code'].startsWith('emcp_approval')) {
+    throw new ApprovalTokenInvalidError(typeof body['message'] === 'string' ? body['message'] : 'invalid token');
+  }
+
+  if (!response.ok) {
+    throw new WordPressApiError(
+      `POST /documents/${postId}/publish returned ${response.status}`,
+      response.status,
+      body,
+    );
+  }
+
+  if (!isRecord(body) || typeof body['published'] !== 'boolean') {
+    throw new WordPressApiError(
+      `POST /documents/${postId}/publish returned an unexpected body shape.`,
+      response.status,
+      body,
+    );
+  }
+
+  if (false === body['published']) {
+    if (typeof body['message'] !== 'string' || typeof body['approval_url'] !== 'string') {
+      throw new WordPressApiError(
+        `POST /documents/${postId}/publish returned an unexpected pending-state body shape.`,
+        response.status,
+        body,
+      );
+    }
+    return { published: false, status: 'pending', message: body['message'], approvalUrl: body['approval_url'] };
+  }
+
+  if (typeof body['status'] !== 'string' || typeof body['url'] !== 'string') {
+    throw new WordPressApiError(
+      `POST /documents/${postId}/publish returned an unexpected published-state body shape.`,
+      response.status,
+      body,
+    );
+  }
+
+  return { published: true, status: body['status'], url: body['url'] };
 }
 
 /**

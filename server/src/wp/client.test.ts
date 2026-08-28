@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ApprovalContentChangedError,
+  ApprovalTokenInvalidError,
   captureSnapshot,
+  createDocument,
   DocumentHashMismatchError,
   DocumentLockedError,
   editElements,
@@ -11,11 +14,15 @@ import {
   getSite,
   getWidgetDetail,
   InvalidOperationsError,
+  InvalidPageTemplateError,
+  InvalidPostTypeError,
   invalidateCache,
   issuePreviewToken,
   listPages,
   listWidgets,
+  publishDraft,
   restoreSnapshot,
+  updateDocumentAttributes,
   WordPressApiError,
 } from './client.js';
 import { PluginVersionMismatchError } from './contract.js';
@@ -412,7 +419,12 @@ describe('editElements', () => {
   });
 
   it('returns the write payload on success', async () => {
-    mockFetchOnce(200, { id: 5, results: [{ element_id: '186bf22', applied: true }], document_hash: 'new-hash' });
+    mockFetchOnce(200, {
+      id: 5,
+      source: 'autosave',
+      results: [{ element_id: '186bf22', applied: true }],
+      document_hash: 'new-hash',
+    });
 
     const result = await editElements(5, ONE_OP, 'old-hash', {}, CONFIG);
 
@@ -420,7 +432,16 @@ describe('editElements', () => {
       id: 5,
       documentHash: 'new-hash',
       results: [{ elementId: '186bf22', applied: true }],
+      source: 'autosave',
     });
+  });
+
+  it('defaults source to "parent" when the plugin response omits it', async () => {
+    mockFetchOnce(200, { id: 5, results: [{ element_id: '186bf22', applied: true }], document_hash: 'new-hash' });
+
+    const result = await editElements(5, ONE_OP, 'old-hash', {}, CONFIG);
+
+    expect(result.source).toBe('parent');
   });
 
   it('sends operations (with op/element_id/settings), document_hash, and override_lock when set', async () => {
@@ -573,5 +594,226 @@ describe('getLockStatus', () => {
     mockFetchOnce(404, { message: 'not found' });
 
     await expect(getLockStatus(5, CONFIG)).rejects.toThrow(WordPressApiError);
+  });
+});
+
+describe('createDocument', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the created document on success', async () => {
+    mockFetchOnce(201, {
+      id: 55,
+      status: 'draft',
+      type: 'page',
+      link: 'http://wp.test/?page_id=55',
+      edit_url: 'http://wp.test/wp-admin/post.php?post=55&action=elementor',
+      page_template: 'default',
+      document_hash: 'hash-1',
+    });
+
+    const result = await createDocument('New Page', {}, CONFIG);
+
+    expect(result).toEqual({
+      id: 55,
+      status: 'draft',
+      type: 'page',
+      link: 'http://wp.test/?page_id=55',
+      editUrl: 'http://wp.test/wp-admin/post.php?post=55&action=elementor',
+      pageTemplate: 'default',
+      documentHash: 'hash-1',
+    });
+  });
+
+  it('sends title, post_type, and page_template', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () =>
+        Promise.resolve({
+          id: 1,
+          status: 'draft',
+          type: 'post',
+          link: 'l',
+          edit_url: 'e',
+          page_template: 'elementor_canvas',
+          document_hash: 'h',
+        }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createDocument('New Post', { postType: 'post', pageTemplate: 'elementor_canvas' }, CONFIG);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      title: 'New Post',
+      post_type: 'post',
+      page_template: 'elementor_canvas',
+    });
+  });
+
+  it('throws InvalidPostTypeError on emcp_invalid_post_type', async () => {
+    mockFetchOnce(400, { code: 'emcp_invalid_post_type', message: 'nope', data: { status: 400 } });
+
+    await expect(createDocument('X', { postType: 'attachment' }, CONFIG)).rejects.toThrow(InvalidPostTypeError);
+  });
+
+  it('throws InvalidPageTemplateError on emcp_invalid_page_template', async () => {
+    mockFetchOnce(400, { code: 'emcp_invalid_page_template', message: 'nope', data: { status: 400 } });
+
+    await expect(createDocument('X', { pageTemplate: 'bogus' }, CONFIG)).rejects.toThrow(InvalidPageTemplateError);
+  });
+
+  it('throws WordPressApiError on a generic non-2xx response', async () => {
+    mockFetchOnce(403, { message: 'forbidden' });
+
+    await expect(createDocument('X', {}, CONFIG)).rejects.toThrow(WordPressApiError);
+  });
+});
+
+describe('updateDocumentAttributes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the updated attributes on success', async () => {
+    mockFetchOnce(200, {
+      id: 5,
+      title: 'Renamed',
+      page_template: 'elementor_canvas',
+      status: 'draft',
+      link: 'http://wp.test/?page_id=5',
+    });
+
+    const result = await updateDocumentAttributes(5, { title: 'Renamed', pageTemplate: 'elementor_canvas' }, CONFIG);
+
+    expect(result).toEqual({
+      id: 5,
+      title: 'Renamed',
+      pageTemplate: 'elementor_canvas',
+      status: 'draft',
+      link: 'http://wp.test/?page_id=5',
+    });
+  });
+
+  it('sends only the provided attributes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 5, title: 'T', page_template: 'default', status: 'draft', link: 'l' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await updateDocumentAttributes(5, { title: 'Renamed' }, CONFIG);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({ title: 'Renamed' });
+  });
+
+  it('throws InvalidPageTemplateError on emcp_invalid_page_template', async () => {
+    mockFetchOnce(400, { code: 'emcp_invalid_page_template', message: 'nope', data: { status: 400 } });
+
+    await expect(updateDocumentAttributes(5, { pageTemplate: 'bogus' }, CONFIG)).rejects.toThrow(
+      InvalidPageTemplateError,
+    );
+  });
+
+  it('throws WordPressApiError on a 404', async () => {
+    mockFetchOnce(404, { code: 'emcp_document_not_found', message: 'not found', data: { status: 404 } });
+
+    await expect(updateDocumentAttributes(5, { title: 'X' }, CONFIG)).rejects.toThrow(WordPressApiError);
+  });
+});
+
+describe('publishDraft', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns a pending state without a token', async () => {
+    mockFetchOnce(200, {
+      id: 5,
+      published: false,
+      status: 'pending',
+      message: 'Approval required.',
+      approval_url: 'http://wp.test/wp-admin/tools.php?page=emcp-publish-approval&post_id=5',
+    });
+
+    const result = await publishDraft(5, undefined, CONFIG);
+
+    expect(result).toEqual({
+      published: false,
+      status: 'pending',
+      message: 'Approval required.',
+      approvalUrl: 'http://wp.test/wp-admin/tools.php?page=emcp-publish-approval&post_id=5',
+    });
+  });
+
+  it('does not send confirmation_token when omitted', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({ id: 5, published: false, status: 'pending', message: 'm', approval_url: 'u' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await publishDraft(5, undefined, CONFIG);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({});
+  });
+
+  it('sends confirmation_token when provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 5, published: true, status: 'publish', url: 'http://wp.test/page' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await publishDraft(5, 'real-token', CONFIG);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({ confirmation_token: 'real-token' });
+  });
+
+  it('returns a published state on success', async () => {
+    mockFetchOnce(200, { id: 5, published: true, status: 'publish', url: 'http://wp.test/my-page' });
+
+    const result = await publishDraft(5, 'real-token', CONFIG);
+
+    expect(result).toEqual({ published: true, status: 'publish', url: 'http://wp.test/my-page' });
+  });
+
+  it('throws ApprovalContentChangedError on emcp_approval_content_changed', async () => {
+    mockFetchOnce(409, { code: 'emcp_approval_content_changed', message: 'stale', data: { status: 409 } });
+
+    await expect(publishDraft(5, 'stale-token', CONFIG)).rejects.toThrow(ApprovalContentChangedError);
+  });
+
+  it('throws ApprovalTokenInvalidError on any emcp_approval_* 403', async () => {
+    mockFetchOnce(403, { code: 'emcp_approval_token_invalid', message: 'used already', data: { status: 403 } });
+
+    await expect(publishDraft(5, 'used-token', CONFIG)).rejects.toThrow(ApprovalTokenInvalidError);
+  });
+
+  it('throws ApprovalTokenInvalidError on wrong-post token', async () => {
+    mockFetchOnce(403, { code: 'emcp_approval_token_wrong_post', message: 'wrong post', data: { status: 403 } });
+
+    await expect(publishDraft(5, 'other-posts-token', CONFIG)).rejects.toThrow(ApprovalTokenInvalidError);
+  });
+
+  it('throws WordPressApiError on a plain 403 (permission, not approval)', async () => {
+    mockFetchOnce(403, { code: 'emcp_forbidden', message: 'forbidden', data: { status: 403 } });
+
+    await expect(publishDraft(5, 'real-token', CONFIG)).rejects.toThrow(WordPressApiError);
+  });
+
+  it('throws WordPressApiError on a generic non-2xx response', async () => {
+    mockFetchOnce(404, { message: 'not found' });
+
+    await expect(publishDraft(5, 'real-token', CONFIG)).rejects.toThrow(WordPressApiError);
   });
 });

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace EMCP;
 
+use EMCP\Admin\PublishApprovalPage;
+use EMCP\Approvals\ApprovalTokenService;
 use EMCP\PreviewTokens\PreviewTokenService;
 use EMCP\Rest\RestController;
 use EMCP\Snapshots\SnapshotService;
@@ -27,6 +29,10 @@ final class Plugin {
 
 		// EMCP-034: see PreviewTokenService::verify_render_token()'s docblock.
 		add_filter( 'redirect_canonical', [ self::class, 'maybe_skip_canonical_redirect_for_renderer' ] );
+
+		// EMCP-047 / D3: the one admin-only, cookie-auth-only screen this
+		// plugin has — see PublishApprovalPage's own docblock for why.
+		PublishApprovalPage::register();
 	}
 
 	/**
@@ -52,6 +58,7 @@ final class Plugin {
 		// on every activation, including plugin updates.
 		PreviewTokenService::create_table();
 		SnapshotService::create_table();
+		ApprovalTokenService::create_table();
 	}
 
 	public static function deactivate(): void {

@@ -23,7 +23,7 @@ Not loop tasks. These need a human and gate the tasks named.
 |---|---|---|
 | D1 | Reference-design ingestion — URL vs out-of-band upload (`Blueprints.md` §12.2) | EMCP-063..066, and every visual criterion until settled |
 | D2 | IdP selection against `solution.md` §9.3 | EMCP-056..059. Long lead time — start now |
-| D3 | Approval channel for `publish_draft` (Slack recommended) | EMCP-047 |
+| D3 | ~~Approval channel for `publish_draft` (Slack recommended)~~ **RESOLVED 2026-08-28: a wp-admin approval screen** (`plugin/src/Admin/PublishApprovalPage.php`), not Slack/email — needs no new external service/credentials and satisfies "a channel the model cannot write to" for free, since this server only ever holds an Application Password, never a WordPress cookie session. See EMCP-047. | EMCP-047 (unblocked) |
 | D4 | Production hosting — KMS, network segmentation, TLS | EMCP-056..059, deployment |
 
 ---
@@ -414,23 +414,27 @@ Coarse until READ LAYER completes.
 - **ID:** EMCP-044 · **Depends:** EMCP-043 · **Verify:** unit
 - Scoped to `(subject, site)`, expiring; a repeat key returns the prior result
 
-#### [ ] Task 45: Autosave and revision mechanics
+#### [x] Task 45: Autosave and revision mechanics
 - **ID:** EMCP-045 · **Depends:** EMCP-043 · **Verify:** live
 - Published pages write an autosave revision; `?source=autosave|parent`; preview reads the autosave
+- Done: `PUT /documents/{id}` resolves a published post's target to its live autosave (creating one via `Document::get_autosave(0, true)` if needed) before hashing/merging/saving, and returns `source`; `edit_elements` (Node) determines the same source for its structural-validation read and pre-write snapshot. `SnapshotService::capture()`/`restore()` are both fully autosave-aware — capture creates an autosave on demand and reads `page_settings` from the right owner; restore resolves its write target from the snapshot's own recorded `source`. Found and fixed a real WP-core gotcha along the way: `update_post_meta()` silently redirects a revision (autosave) post id to its parent, so `restore()` now writes via `update_metadata()` directly — added to `CLAUDE.md`. Live-verified end to end on `wp-v4-pro` (edit → autosave created, parent untouched → second edit reuses the same autosave → snapshot capture/restore round-trips correctly on the autosave alone). `render_preview` reading the autosave for a published page remains explicitly out of scope, same as EMCP-034 already flagged.
 
-#### [ ] Task 46: `create_page` and `update_page`
+#### [x] Task 46: `create_page` and `update_page`
 - **ID:** EMCP-046 · **Depends:** EMCP-045 · **Verify:** live
 - Sets `_elementor_edit_mode` and required meta; page template explicit
+- Done: `POST /documents` (new route, `DocumentsController::create()`) always creates a `draft`, modelled on Elementor's own `modules/mcp/abilities/create-page-ability.php` — introspects `post_type_supports($type,'elementor')` and `get_post_type_object($type)->cap->create_posts`, calls `Document::set_is_built_with_elementor(true)` + `save(['elements'=>[]])` so all required meta (`_elementor_edit_mode`/`_elementor_template_type`/`_elementor_version`) is real immediately, and writes `_wp_page_template` explicitly, validated against the live-introspected `wp_get_theme()->get_page_templates()`. `PUT /documents/{id}/page` (new route, `update_attributes()`) updates title/page_template on an existing document — deliberately separate from `edit_elements`'s `PUT /documents/{id}` contract and never autosave-branched, since a page template is a live post attribute with no draft concept, unlike element content. Node: `create_page`/`update_page` MCP tools (`server/src/tools/{createPage,updatePage}.ts`), `wp/client.ts`'s `createDocument()`/`updateDocumentAttributes()`. `create_page` supports `idempotency_key` (reusing EMCP-044's store) since, unlike `edit_elements`, a repeat call is a real duplicate, not a no-op. Live-verified end to end through the real `/mcp` endpoint: created a page and fed its `post_id` straight into `get_page_structure`; confirmed idempotency-key replay returns the same page id via `list_pages`; `update_page` changed title+template on a *published* post with `document_hash`/elements unaffected; template/post_type validation rejected bad values. 273/273 unit tests (up from 246), PHPUnit unchanged 17/17.
 
-#### [ ] Task 47: `publish_draft`
+#### [x] Task 47: `publish_draft`
 - **ID:** EMCP-047 · **Depends:** EMCP-045, **D3** · **Verify:** live
 - Promotes autosave onto parent; requires an out-of-band confirmation token bound to `(site, post_id, content_hash)`
+- Done: D3 resolved (wp-admin approval screen, see decision table). New `plugin/src/Approvals/{ApprovalTokenSigner,ApprovalTokenService}.php` (mirrors `PreviewTokenService`'s HMAC+nonce-table pattern, plus a `chash` content-binding claim `redeem()` enforces as a 409 on mismatch), `plugin/src/Admin/PublishApprovalPage.php` (the one cookie/nonce-auth-only page in the plugin — unreachable via the Application Password this server's own REST calls use), `plugin/src/Documents/PublishService.php` (shared source-resolution + the two-branch promote: `wp_publish_post()` for a never-published draft, `copy_elementor_meta()` autosave→parent for an already-published page's pending edits). New route `POST /documents/{id}/publish`. Node: `publish_draft` MCP tool (`server/src/tools/publishDraft.ts`), `wp/client.ts`'s `publishDraft()`, ledger-wired (`approvalTokenRef` is a SHA-256 of the token, never the raw value). Live-verified end to end through the real `/mcp` endpoint with a genuine wp-admin cookie login (not just the REST API): both promote branches, single-use enforcement, and the content-hash binding correctly rejecting a token whose target content changed after approval. Found and fixed a real gotcha along the way: a plugin's `register_activation_hook()` doesn't re-run just from editing files on an already-active install — added to `CLAUDE.md`. 290/290 unit tests (up from 273), PHPUnit 27/27 (up from 17).
 
 ### DSL AND COMPILER
 
-#### [ ] Task 48: Grammar and schema
+#### [x] Task 48: Grammar and schema
 - **ID:** EMCP-048 · **Depends:** EMCP-030 · **Verify:** unit
 - `Blueprints.md` §2; `dslVersion` enforced; unknown versions refused
+- Done: `server/src/dsl/types.ts` (pure TS types for the whole §2 grammar) + `server/src/dsl/validate.ts`'s `parseSpec()` (hand-rolled, not Zod — see Blueprints.md §3's note on why, matching this codebase's actual established practice over the stack table). `dslVersion` enforced (missing/non-integer/unsupported all refused with `DSL_VERSION_UNSUPPORTED`), every node type checked against §2.3's real set (`NODE_TYPE_UNKNOWN`), every type's required fields per §2.3's table (`NODE_FIELD_MISSING`), §2.8's `reason`-required rule for `raw`/`html` enforced once (`REASON_REQUIRED`). Reuses `domain/validate.ts`'s `Diagnostic` shape — one diagnostic vocabulary end to end. Deliberately does not validate anything requiring `siteProfile` (widget existence, breakpoint names, token resolution) — that's the compiler's job (EMCP-049+), stated as an explicit scope boundary in the module docblock and Blueprints.md §3. New error codes (`SPEC_MALFORMED`, `NODE_TYPE_UNKNOWN`, `NODE_FIELD_MISSING`, `REASON_REQUIRED`) added to Blueprints.md §8.2 in the same pass. 36 new unit tests, `verify:unit` unaffected elsewhere (no live dependency — this task never touches WordPress).
 
 #### [ ] Task 49: Compiler core
 - **ID:** EMCP-049 · **Depends:** EMCP-048 · **Verify:** unit

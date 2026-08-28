@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace EMCP\Rest;
 
+use EMCP\Approvals\ApprovalTokenService;
 use EMCP\Documents\DocumentHasher;
+use EMCP\Documents\PublishService;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -82,6 +84,320 @@ final class DocumentsController {
 			'edit_url' => get_edit_post_link( $post->ID, 'raw' ),
 			'link'     => get_permalink( $post ), // EMCP-034: render_preview's navigation target.
 		];
+	}
+
+	/**
+	 * `POST /documents` — `create_page` (EMCP-046). Always creates a `draft`
+	 * — solution.md §5.4's write posture table: "New page → post with `draft`
+	 * status," never anything else; publishing is `publish_draft`'s job
+	 * (EMCP-047, not built yet), so this route doesn't accept a `status`
+	 * input at all.
+	 *
+	 * Modelled directly on Elementor's own `modules/mcp/abilities/
+	 * create-page-ability.php` (Elementor 4.2.3 ships its own MCP "create
+	 * page" ability — read live, not guessed) for the parts that matter for
+	 * correctness: `post_type_exists() && post_type_supports($type,
+	 * 'elementor')` validates the post type the same introspective way
+	 * CLAUDE.md's "introspect, never hardcode" already applies to widgets;
+	 * `get_post_type_object($type)->cap->create_posts` is the real
+	 * capability for that post type, not a hardcoded `edit_pages`; and
+	 * `$document->set_is_built_with_elementor( true )` is the one real
+	 * Elementor API for "mark this post `_elementor_edit_mode = builder`" —
+	 * writing that meta key by hand would drift from whatever internal
+	 * representation a future Elementor version chooses (currently the
+	 * string `'builder'`, `Document::BUILT_WITH_ELEMENTOR_META_KEY`).
+	 *
+	 * Goes one step further than Elementor's own minimal ability, which
+	 * leaves `_elementor_template_type`/`_elementor_version` unset until a
+	 * human's first edit in the real editor: this route also calls
+	 * `$document->save( [ 'elements' => [] ] )` immediately, since
+	 * `Document::save()` always stamps both of those itself (confirmed live
+	 * by reading `core/base/document.php`) — so `GET /documents/{id}`
+	 * (`show()`) returns a fully valid, immediately-editable document with a
+	 * real `document_hash` right away, rather than a document `edit_elements`
+	 * can't yet target because required meta is missing (CLAUDE.md's
+	 * `_elementor_edit_mode` gotcha, generalised to the sibling meta keys
+	 * `save()` owns).
+	 *
+	 * `_wp_page_template` is always written explicitly (prd.md's own words
+	 * for this task: "page template explicit") — never left absent for
+	 * WordPress to resolve implicitly, and validated against the real,
+	 * introspected list `wp_get_theme()->get_page_templates()` returns for
+	 * this post type (confirmed live: it already includes Elementor's own
+	 * `elementor_canvas`/`elementor_header_footer`/`elementor_theme`
+	 * entries, registered via the standard `theme_page_templates` filter —
+	 * no Elementor-specific slugs are hardcoded here) plus the always-valid
+	 * `'default'` sentinel ("use the theme's own default template", which
+	 * `get_page_templates()` itself never lists as an option).
+	 */
+	public function create( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$title = $request->get_param( 'title' );
+
+		if ( ! is_string( $title ) || '' === trim( $title ) ) {
+			return new \WP_Error(
+				'emcp_invalid_request',
+				__( 'A non-empty "title" is required.', 'emcp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$post_type = $request->get_param( 'post_type' );
+		$post_type = is_string( $post_type ) && '' !== $post_type ? sanitize_key( $post_type ) : 'page';
+
+		if ( ! post_type_exists( $post_type ) || ! post_type_supports( $post_type, 'elementor' ) ) {
+			return new \WP_Error(
+				'emcp_invalid_post_type',
+				__( 'This post type does not exist or does not support Elementor.', 'emcp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$post_type_object = get_post_type_object( $post_type );
+
+		if ( ! $post_type_object || ! current_user_can( $post_type_object->cap->create_posts ) ) {
+			return new \WP_Error(
+				'emcp_forbidden',
+				__( 'The authenticated user is not permitted to create posts of this type.', 'emcp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		$page_template = $request->get_param( 'page_template' );
+		$page_template = is_string( $page_template ) && '' !== $page_template ? $page_template : 'default';
+
+		if ( 'default' !== $page_template && ! array_key_exists( $page_template, wp_get_theme()->get_page_templates( null, $post_type ) ) ) {
+			return new \WP_Error(
+				'emcp_invalid_page_template',
+				__( 'Unknown "page_template" for this post type.', 'emcp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$post_id = wp_insert_post(
+			[
+				'post_title'  => $title,
+				'post_status' => 'draft',
+				'post_type'   => $post_type,
+			],
+			true
+		);
+
+		if ( is_wp_error( $post_id ) ) {
+			return $post_id;
+		}
+
+		$document = \Elementor\Plugin::$instance->documents->get( $post_id );
+
+		if ( ! $document ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'Elementor could not load the newly created document.', 'emcp' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		$document->set_is_built_with_elementor( true );
+		$document->save( [ 'elements' => [] ] );
+
+		update_post_meta( $post_id, '_wp_page_template', $page_template );
+
+		$meta = [
+			'edit_mode'     => get_post_meta( $post_id, '_elementor_edit_mode', true ),
+			'template_type' => get_post_meta( $post_id, '_elementor_template_type', true ),
+			'version'       => get_post_meta( $post_id, '_elementor_version', true ),
+			'page_settings' => $this->decode_json_meta( $post_id, '_elementor_page_settings' ),
+		];
+
+		return new \WP_REST_Response(
+			[
+				'id'            => $post_id,
+				'source'        => 'parent',
+				'status'        => get_post_status( $post_id ),
+				'type'          => $post_type,
+				'link'          => get_permalink( $post_id ),
+				'edit_url'      => $document->get_edit_url(),
+				'page_template' => $page_template,
+				'elements'      => [],
+				'meta'          => $meta,
+				'document_hash' => DocumentHasher::hash( [], $meta['page_settings'] ),
+			],
+			201
+		);
+	}
+
+	/**
+	 * `PUT /documents/{id}/page` — `update_page` (EMCP-046). Deliberately
+	 * **not** the same route `edit_elements` writes through
+	 * (`PUT /documents/{id}`, §7.2's frozen `operations[]`/`document_hash`
+	 * contract) — a page template or title change is not "document content"
+	 * in the sense the rest of the write layer means it. `_wp_page_template`
+	 * is a real WordPress post attribute that controls which PHP template
+	 * renders the post on *every* request regardless of publish state —
+	 * there is no meaningful "draft" version of it the way there is for
+	 * `_elementor_data`, so unlike `edit_elements` (EMCP-045) this route
+	 * never branches to an autosave: it always writes the real post
+	 * directly, published or not, the same way changing a post's title
+	 * always take effect immediately rather than being staged. No document
+	 * hash CAS either, for the same reason — the compare-and-swap exists to
+	 * protect the element tree from being clobbered by a concurrent editor
+	 * session; title/template aren't part of that tree or its hash.
+	 */
+	public function update_attributes( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$post_id = (int) $request->get_param( 'id' );
+		$post    = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'No post exists with that ID.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'emcp_forbidden',
+				__( 'The authenticated user is not permitted to edit this post.', 'emcp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		if ( 'builder' !== get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+			return new \WP_Error(
+				'emcp_not_an_elementor_document',
+				__( 'This post was not built with Elementor.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$title         = $request->get_param( 'title' );
+		$page_template = $request->get_param( 'page_template' );
+
+		if ( ( ! is_string( $title ) || '' === trim( $title ) ) && ( ! is_string( $page_template ) || '' === $page_template ) ) {
+			return new \WP_Error(
+				'emcp_invalid_request',
+				__( 'At least one of "title" or "page_template" is required.', 'emcp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( is_string( $page_template ) && '' !== $page_template ) {
+			if ( 'default' !== $page_template && ! array_key_exists( $page_template, wp_get_theme()->get_page_templates( $post, $post->post_type ) ) ) {
+				return new \WP_Error(
+					'emcp_invalid_page_template',
+					__( 'Unknown "page_template" for this post type.', 'emcp' ),
+					[ 'status' => 400 ]
+				);
+			}
+
+			update_post_meta( $post_id, '_wp_page_template', $page_template );
+		}
+
+		if ( is_string( $title ) && '' !== trim( $title ) ) {
+			wp_update_post( [ 'ID' => $post_id, 'post_title' => $title ], true );
+		}
+
+		clean_post_cache( $post_id );
+
+		return new \WP_REST_Response(
+			[
+				'id'            => $post_id,
+				'title'         => get_the_title( $post_id ),
+				'page_template' => (string) get_post_meta( $post_id, '_wp_page_template', true ),
+				'status'        => get_post_status( $post_id ),
+				'link'          => get_permalink( $post_id ),
+			],
+			200
+		);
+	}
+
+	/**
+	 * `POST /documents/{id}/publish` — `publish_draft` (EMCP-047,
+	 * Blueprints.md §7.5). Never a boolean argument — the confirmation
+	 * token is the human gate. Called without `confirmation_token`, this
+	 * returns `pending` plus the exact wp-admin URL a human needs to visit
+	 * to approve it — that page (`EMCP\Admin\PublishApprovalPage`) is
+	 * cookie/nonce-authenticated only, unreachable through the Application
+	 * Password credential this server's own REST calls use, which is
+	 * exactly the "channel the model cannot write to" §7.5 requires.
+	 *
+	 * Requires `publish_posts`-class capability (`current_user_can(
+	 * 'publish_post', $post_id )`), not just `edit_post` — a stronger gate
+	 * than every other write route in this controller, matching that
+	 * publishing is the one action here that's genuinely hard to walk back
+	 * for a real site's visitors.
+	 */
+	public function publish( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$post_id = (int) $request->get_param( 'id' );
+		$post    = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'emcp_document_not_found',
+				__( 'No post exists with that ID.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( ! current_user_can( 'publish_post', $post_id ) ) {
+			return new \WP_Error(
+				'emcp_forbidden',
+				__( 'The authenticated user is not permitted to publish this post.', 'emcp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		if ( 'builder' !== get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+			return new \WP_Error(
+				'emcp_not_an_elementor_document',
+				__( 'This post was not built with Elementor.', 'emcp' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$publish_service = new PublishService();
+		$state            = $publish_service->resolve_current_state( $post_id );
+
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
+
+		$token = $request->get_param( 'confirmation_token' );
+
+		if ( ! is_string( $token ) || '' === $token ) {
+			return new \WP_REST_Response(
+				[
+					'id'           => $post_id,
+					'published'    => false,
+					'status'       => 'pending',
+					'message'      => __( 'Publishing requires human approval. Visit the approval URL, log into WordPress, and approve — then call publish_draft again with the confirmation_token shown there.', 'emcp' ),
+					'approval_url' => admin_url( 'tools.php?page=emcp-publish-approval&post_id=' . $post_id ),
+				],
+				200
+			);
+		}
+
+		$redeemed = ( new ApprovalTokenService() )->redeem( $token, $post_id, $state['hash'] );
+
+		if ( is_wp_error( $redeemed ) ) {
+			return $redeemed;
+		}
+
+		$result = $publish_service->promote( $post_id );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new \WP_REST_Response(
+			[
+				'id'        => $post_id,
+				'published' => true,
+				'status'    => get_post_status( $post_id ),
+				'url'       => get_permalink( $post_id ),
+			],
+			200
+		);
 	}
 
 	/**
@@ -163,9 +479,15 @@ final class DocumentsController {
 	 * gained document-hash CAS (EMCP-041, §6.4) and post-lock refusal
 	 * (EMCP-042, §6.3); EMCP-043 generalized the single `element_id`/
 	 * `settings` pair into a **batch** of `operations`, matching Blueprints.md
-	 * §7.2's real contract. Still not the full §6.3 contract in one respect:
-	 * draft/autosave branching (EMCP-045) — always writes the **parent**
-	 * directly via `Document::save()`, never an autosave.
+	 * §7.2's real contract. EMCP-045 closes the last gap against §6.3's
+	 * table: a **published** post writes its live autosave revision (created
+	 * via Elementor's own `Document::get_autosave( 0, true )` if none exists
+	 * yet), never the parent directly — "Saved successfully" for a published
+	 * page therefore means "the autosave changed," matching CLAUDE.md's
+	 * gotcha verbatim ("`_elementor_data` on the parent is untouched"). A
+	 * non-published post (draft, pending, etc.) still writes the parent
+	 * directly, since there's no "live" version to protect from a
+	 * mid-edit write.
 	 *
 	 * Each operation is a flat object with `op` as a required enum
 	 * (Blueprints.md §7.2: "not a JSON Schema `oneOf` at item level, which is
@@ -262,8 +584,25 @@ final class DocumentsController {
 			}
 		}
 
-		$elements      = $this->decode_elementor_data( $post_id );
-		$page_settings = $this->decode_json_meta( $post_id, '_elementor_page_settings' );
+		$source    = 'publish' === $post->post_status ? 'autosave' : 'parent';
+		$target_id = $post_id;
+
+		if ( 'autosave' === $source ) {
+			$autosave_post = $this->find_or_create_autosave( $post_id );
+
+			if ( null === $autosave_post ) {
+				return new \WP_Error(
+					'emcp_no_autosave',
+					__( 'No autosave revision exists for this post, and one could not be created.', 'emcp' ),
+					[ 'status' => 404 ]
+				);
+			}
+
+			$target_id = $autosave_post->ID;
+		}
+
+		$elements      = $this->decode_elementor_data( $target_id );
+		$page_settings = $this->decode_json_meta( $target_id, '_elementor_page_settings' );
 		$current_hash  = DocumentHasher::hash( $elements, $page_settings );
 
 		if ( $expected_hash !== $current_hash ) {
@@ -317,7 +656,7 @@ final class DocumentsController {
 			$results[] = [ 'element_id' => $element_id, 'applied' => true ];
 		}
 
-		$document = \Elementor\Plugin::$instance->documents->get( $post_id );
+		$document = \Elementor\Plugin::$instance->documents->get( $target_id );
 
 		if ( ! $document ) {
 			return new \WP_Error(
@@ -332,6 +671,7 @@ final class DocumentsController {
 		return new \WP_REST_Response(
 			[
 				'id'            => $post_id,
+				'source'        => $source,
 				'results'       => $results,
 				'document_hash' => DocumentHasher::hash( $elements, $page_settings ),
 			],
@@ -473,6 +813,37 @@ final class DocumentsController {
 		$autosave = wp_get_post_autosave( $parent_id, $user_id );
 
 		return $autosave instanceof \WP_Post ? $autosave : null;
+	}
+
+	/**
+	 * Finds the post's current autosave revision, creating one via
+	 * Elementor's own `Document::get_autosave( 0, true )` (never a
+	 * hand-rolled `wp_create_post_autosave()` call — that would skip
+	 * Elementor's `copy_elementor_meta()` step) when none exists yet.
+	 * Mirrors `SnapshotService::find_or_create_autosave()`; kept as a
+	 * separate copy rather than a shared dependency since the two classes
+	 * don't otherwise share one (EMCP-045).
+	 */
+	private function find_or_create_autosave( int $post_id ): ?\WP_Post {
+		if ( ! class_exists( '\Elementor\Plugin' ) ) {
+			return null;
+		}
+
+		$document = \Elementor\Plugin::$instance->documents->get( $post_id );
+
+		if ( ! $document ) {
+			return null;
+		}
+
+		$autosave = $document->get_autosave( 0, true );
+
+		if ( ! $autosave instanceof \Elementor\Core\Base\Document ) {
+			return null;
+		}
+
+		$autosave_post = $autosave->get_post();
+
+		return $autosave_post instanceof \WP_Post ? $autosave_post : null;
 	}
 
 	private function decode_elementor_data( int $post_id ): array {
