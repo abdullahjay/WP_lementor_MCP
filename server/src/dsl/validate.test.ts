@@ -188,7 +188,7 @@ describe('parseSpec', () => {
     const { spec, diagnostics } = parseSpec({
       dslVersion: 1,
       page: { title: 'x' },
-      elements: [{ type, ...extra, ...(type === 'html' ? { reason: 'x' } : {}) }],
+      elements: [{ type, ...extra }],
     });
 
     expect(spec).toBeNull();

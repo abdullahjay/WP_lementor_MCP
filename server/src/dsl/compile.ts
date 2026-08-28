@@ -1,0 +1,283 @@
+import { randomBytes } from 'node:crypto';
+import type { RawWidget } from '../domain/curation.js';
+import type { ElementorNode } from '../domain/detect.js';
+import type { Diagnostic } from '../domain/validate.js';
+import type { Spec, SpecNode, SpecNodeType } from './types.js';
+
+/**
+ * EMCP-049 — Blueprints.md §3, the compiler's orchestration layer:
+ * `compile(spec, siteProfile) → { elements, diagnostics, nativeness,
+ * rawRatio }`, pure and synchronous, §3.3's invariants enforced.
+ *
+ * **What "core" means here, deliberately, and what it doesn't:** the DSL→
+ * native *emission tables* — the real per-node-type mapping this codebase
+ * calls `container → e-flexbox`, `heading → e-heading`/`widgetType:
+ * heading`, and so on (§3.2's whole table) — are EMCP-050 (v3) and
+ * EMCP-051 (v4), not this task. What this task owns is everything those
+ * two tasks will share and must never each reimplement: the tree walk,
+ * unique-ID generation across the *whole* tree (§3.3), diagnostic
+ * aggregation, `nativeness`/`rawRatio` computation, and the required
+ * document meta shape (§3.3) — plus a pluggable emitter registry
+ * (`registerEmitter`) that EMCP-050/051 populate rather than this module
+ * hardcoding generation-specific logic it has no way to get right yet.
+ *
+ * **Ships one real, working emitter of its own: `widget` (§2.3's escape
+ * rung).** Chosen specifically because it's the one node type §3.2's own
+ * table says is generation-agnostic ("passthrough `widgetType`" for both
+ * v3 and v4) — every other type needs the real mapping tables EMCP-050/051
+ * own, but `widget` needs nothing generation-specific at all, so it's both
+ * a genuinely correct, spec-faithful implementation *and* the natural
+ * vehicle for testing the whole orchestration (ID uniqueness, nested
+ * children, diagnostics, nativeness/rawRatio) without inventing a
+ * throwaway fake mapping table this task would just have to delete later.
+ * `WIDGET_NOT_AVAILABLE` is checked for real, against `siteProfile`'s
+ * actual registered-widget list — the one site-dependent check this task
+ * can do correctly without emission tables.
+ *
+ * A node type with no registered emitter for `siteProfile.generation`
+ * produces an `EMISSION_NOT_IMPLEMENTED` diagnostic, not a silent skip or
+ * a guess — matching `dslVersion`'s own "fail loudly, not partially apply"
+ * rule (§2.1) and `parseSpec`'s all-or-nothing behavior (EMCP-048): a
+ * single unimplemented or invalid node fails the *whole* compile
+ * (`elements: []`), not a partial tree with that node missing.
+ */
+
+/**
+ * §5.1: legacy is **read**-only — "Create: No." New content only ever
+ * targets v3 (container) or v4, per solution.md §5.2's disambiguation
+ * rule ("New top-level content → the site's own generation — V4 layout on
+ * V4 sites, container on V3"). `siteProfile.generation` is therefore
+ * narrower than `domain/detect.ts`'s full `Generation` (which also reads
+ * `'legacy'` off existing content) — a compiler never emits legacy shapes.
+ */
+export type EmissionGeneration = 'v3' | 'v4';
+
+/**
+ * §3.1: "`siteProfile` comes from `get_site_info` and carries: generation
+ * to emit, breakpoints, kit tokens, registered widget list, Pro tier,
+ * active experiments." Field types mirror what those real tools already
+ * return (`getSiteInfoTool`, `domain/curation.ts`'s `RawWidget`) rather
+ * than inventing a parallel shape.
+ */
+export interface SiteProfile {
+  generation: EmissionGeneration;
+  elementorVersion: string | null;
+  breakpoints: Record<string, unknown>;
+  /**
+   * Token name (without the `@`) → resolved reference. Exact resolution
+   * shape is generation-dependent (§2.7) and genuinely unimplemented until
+   * whichever of EMCP-050/051 first needs to emit `style.color`/etc. —
+   * present here so that task doesn't need to touch `SiteProfile` itself.
+   */
+  kitTokens: Record<string, string>;
+  widgetRegistry: RawWidget[];
+  proTier: string;
+  activeExperiments: Record<string, string>;
+}
+
+/** §3.3: the meta every compiled document needs, for the caller (e.g. a future `apply_page_spec`, EMCP-055) to actually write. */
+export interface DocMeta {
+  edit_mode: 'builder';
+  /**
+   * Elementor's own document-type key (`_elementor_template_type`) — always
+   * `'wp-page'` today, since this compiler only targets whole-page specs
+   * (`spec.page`) and every live document this project has inspected uses
+   * that value for a Page document. Revisit if/when a spec can target a
+   * non-page post type.
+   */
+  template_type: string;
+  version: string | null;
+  page_settings: Record<string, unknown>;
+}
+
+export interface CompileResult {
+  elements: ElementorNode[];
+  diagnostics: Diagnostic[];
+  /** Fraction of nodes that are natively modeled — i.e. not the `html` escape rung (§2.3: "html — Non-native"). `1` for an empty tree. */
+  nativeness: number;
+  /** Fraction of nodes that used `raw` (§2.8: "every use is counted into raw_ratio"). `0` for an empty tree. */
+  rawRatio: number;
+  docMeta: DocMeta;
+}
+
+export interface EmitContext {
+  siteProfile: SiteProfile;
+  path: string;
+}
+
+/** What an emitter itself is responsible for — `compile()` owns `id`/`elements` (§3.3's whole-tree ID uniqueness and recursion) so no emitter can get either wrong. */
+export interface EmittedElement {
+  elType: string;
+  widgetType?: string;
+  settings?: Record<string, unknown>;
+  styles?: unknown;
+  version?: unknown;
+  [key: string]: unknown;
+}
+
+export interface EmitOutcome {
+  /** `null` on failure — `diagnostics` must then contain at least one `severity: 'error'` entry explaining why. */
+  element: EmittedElement | null;
+  diagnostics: Diagnostic[];
+}
+
+export type Emitter = (node: SpecNode, ctx: EmitContext) => EmitOutcome;
+
+type EmitterKey = `${SpecNodeType}:${EmissionGeneration}`;
+
+const emitterRegistry = new Map<EmitterKey, Emitter>();
+
+function emitterKey(type: SpecNodeType, generation: EmissionGeneration): EmitterKey {
+  return `${type}:${generation}`;
+}
+
+/** EMCP-050/051's registration point — see the module docblock. */
+export function registerEmitter(nodeType: SpecNodeType, generation: EmissionGeneration, emitter: Emitter): void {
+  emitterRegistry.set(emitterKey(nodeType, generation), emitter);
+}
+
+/** Test-only: restores a clean registry between tests that register fakes, matching this codebase's other test-isolation conventions. */
+export function clearEmitters(): void {
+  emitterRegistry.clear();
+}
+
+registerEmitter('widget', 'v3', emitWidgetNode);
+registerEmitter('widget', 'v4', emitWidgetNode);
+
+function emitWidgetNode(node: SpecNode, ctx: EmitContext): EmitOutcome {
+  if (node.type !== 'widget') {
+    throw new Error(`emitWidgetNode called with node.type "${node.type}"`);
+  }
+
+  const exists = ctx.siteProfile.widgetRegistry.some((w) => w.name === node.widgetType);
+
+  if (!exists) {
+    const names = ctx.siteProfile.widgetRegistry.map((w) => w.name);
+    return {
+      element: null,
+      diagnostics: [
+        {
+          path: `${ctx.path}.widgetType`,
+          severity: 'error',
+          code: 'WIDGET_NOT_AVAILABLE',
+          message: `Widget "${node.widgetType}" is not registered on this site.`,
+          allowed: names,
+        },
+      ],
+    };
+  }
+
+  return {
+    element: { elType: 'widget', widgetType: node.widgetType, settings: node.settings ?? {} },
+    diagnostics: [],
+  };
+}
+
+export function compile(spec: Spec, siteProfile: SiteProfile): CompileResult {
+  const diagnostics: Diagnostic[] = [];
+  const usedIds = new Set<string>();
+
+  const elements = compileNodes(spec.elements, 'elements', siteProfile, diagnostics, usedIds);
+
+  const hasErrors = diagnostics.some((d) => d.severity === 'error');
+  const { total, htmlCount, rawCount } = countNodes(spec.elements);
+
+  return {
+    elements: hasErrors ? [] : elements,
+    diagnostics,
+    nativeness: total === 0 ? 1 : (total - htmlCount) / total,
+    rawRatio: total === 0 ? 0 : rawCount / total,
+    docMeta: {
+      edit_mode: 'builder',
+      template_type: 'wp-page',
+      version: siteProfile.elementorVersion,
+      page_settings: {},
+    },
+  };
+}
+
+function compileNodes(
+  nodes: SpecNode[],
+  basePath: string,
+  siteProfile: SiteProfile,
+  diagnostics: Diagnostic[],
+  usedIds: Set<string>,
+): ElementorNode[] {
+  const compiled: ElementorNode[] = [];
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i]!;
+    const path = `${basePath}[${i}]`;
+    const emitter = emitterRegistry.get(emitterKey(node.type, siteProfile.generation));
+
+    if (!emitter) {
+      diagnostics.push({
+        path: `${path}.type`,
+        severity: 'error',
+        code: 'EMISSION_NOT_IMPLEMENTED',
+        message: `No compiler emitter is registered for "${node.type}" on ${siteProfile.generation}.`,
+      });
+      continue;
+    }
+
+    const outcome = emitter(node, { siteProfile, path });
+    diagnostics.push(...outcome.diagnostics);
+
+    if (!outcome.element) {
+      continue;
+    }
+
+    const children = node.children
+      ? compileNodes(node.children, `${path}.children`, siteProfile, diagnostics, usedIds)
+      : [];
+
+    const element: ElementorNode = {
+      ...outcome.element,
+      id: generateUniqueId(usedIds),
+      elements: children,
+    };
+    compiled.push(element);
+  }
+
+  return compiled;
+}
+
+/**
+ * §3.3: "Element IDs are 7-char hex, unique across the **whole** tree
+ * including nested widget children." One shared `usedIds` set threaded
+ * through the entire recursive walk, not per-level — a collision between a
+ * container and one of its own great-grandchildren is exactly the bug this
+ * guards against. Regenerates on collision rather than failing; at 7 hex
+ * chars (~268M values) a collision on any realistic page is astronomically
+ * unlikely, but "assume it can't happen" is how style bleed (CLAUDE.md's
+ * own gotcha) gets shipped.
+ */
+function generateUniqueId(usedIds: Set<string>): string {
+  let id = randomBytes(4).toString('hex').slice(0, 7);
+  while (usedIds.has(id)) {
+    id = randomBytes(4).toString('hex').slice(0, 7);
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function countNodes(nodes: SpecNode[]): { total: number; htmlCount: number; rawCount: number } {
+  let total = 0;
+  let htmlCount = 0;
+  let rawCount = 0;
+
+  for (const node of nodes) {
+    total += 1;
+    if (node.type === 'html') htmlCount += 1;
+    if (node.raw !== undefined) rawCount += 1;
+
+    if (node.children) {
+      const child = countNodes(node.children);
+      total += child.total;
+      htmlCount += child.htmlCount;
+      rawCount += child.rawCount;
+    }
+  }
+
+  return { total, htmlCount, rawCount };
+}
