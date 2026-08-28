@@ -494,9 +494,10 @@ Gated on D2 and D4.
 - **ID:** EMCP-061 · **Depends:** EMCP-060 · **Verify:** live
 - Regenerates element IDs
 - Done: shares `apply_page_spec`'s entire write pipeline via a new `server/src/tools/applyCompiledSpec.ts` (document fetch, `compile()`, dry_run short-circuit, snapshot/write/cache-invalidate, ledger, idempotency) — `apply_template.ts` only fetches the template's spec (`GET /templates/{id}`, a new route added for this) and hands off. ID regeneration needed no new code: `compile()` already generates fresh unique ids every call. Live-verified: a template saved from one page applied cleanly to a different page with genuinely fresh element ids, an unknown template_id refused with a 404 before any document read, and a real `apply_template` ledger row confirmed via `list_changes`.
-#### [ ] Task 62: Cross-sandbox portability
+#### [x] Task 62: Cross-sandbox portability
 - **ID:** EMCP-062 · **Depends:** EMCP-061 · **Verify:** live
 - `dry_run` reports missing widgets when a Pro-authored template targets the Free sandbox
+- Done: pure live verification, no new code — ran a second mcp instance pointed at wp-v3-free (confirmed genuinely v3/free via get_site_info) alongside wp-v4-pro's. A v4-only-widget spec was refused by both validate_page_spec and apply_page_spec's dry_run (confirmed no write via a follow-up read); the same spec save_as_template had decompiled from a real page validated cleanly and applied for real, producing native v3 heading/button widgets — genuine cross-generation portability, not just failure detection. Found and documented a real architectural boundary: templates are stored per-site, so cross-site movement happens at the spec level (re-POST /templates on the target site), not via template_id across connectors.
 
 ### INGESTION AND COMPARISON
 
