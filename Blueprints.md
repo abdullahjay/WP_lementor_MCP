@@ -298,6 +298,12 @@ Every compile returns diagnostics regardless of success, each carrying a JSON pa
 
 **It is lossy by design.** Anything without a DSL representation decompiles to `widget` with native settings, or `raw`. Round-trip tests assert **semantic** equivalence — `compile(decompile(x)) ≈ x` after normalization — never byte equality.
 
+**Implemented (EMCP-054).** `server/src/dsl/decompile.ts`'s `decompile(nativeElements, siteProfile) → { elements, diagnostics }` inverts exactly the same confirmed shapes `v3.ts`/`v4.ts` already forward-map (EMCP-050/051) — no new research, since the ground truth is identical in both directions. Reuses `domain/detect.ts`'s `detectNodeGeneration()` (EMCP-019) for per-node generation dispatch rather than reimplementing it.
+
+**Deliberately never fails the way `compile()`/`parseSpec()` do.** Those exist to catch a spec author's mistake before it's written; `decompile()`'s job is the opposite — make *whatever a real page already contains* editable, even when it's ugly. Every diagnostic is `warning`/`info`, never `error`. The two fallbacks §4 itself names are both real here: an unrecognized `widgetType` falls back to the DSL's own `widget` escape rung, **verbatim and therefore lossless** (`compile()`'s built-in `widget` emitter round-trips it exactly); a legacy `section`/`column` (§5.1: legacy is read-only — the DSL has no legacy container type to decompile *to* at all) or any other genuinely unrecognized native shape falls back to `container` with `raw` holding the native content verbatim (still denylist/sanitisation-checked on the way back through `compile()`, per §2.8 — decompiled content isn't exempt from those rules just because it came from a real page). Settings a recognized node type's reverse-mapper doesn't consume are preserved the same way, via `raw`, not silently dropped.
+
+24 unit tests (`server/src/dsl/decompile.test.ts`), including three genuine round-trip tests through the **real, committed fixture set** (not hand-crafted data): `v3-container.json`'s heading text and icon widgetType survive `decompile()`→`compile()`; `deep-nested.json`'s full 5-level nesting depth survives; `unicode-roundtrip.json`'s em-dash/Arabic/CJK content survives exactly. A fourth confirms the widescreen-responsive fixture's *structure* reverses correctly even though its specific typography properties don't — "lossy by design" demonstrated against real data, not just asserted in prose.
+
 ---
 
 ## 5. Normalized read shape

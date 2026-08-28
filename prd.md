@@ -460,9 +460,10 @@ Coarse until READ LAYER completes.
 - Deep merge, reserved-key denylist, value sanitisation, mandatory `reason`, `raw_ratio` reported
 - Done: `server/src/dsl/raw.ts`'s `mergeRaw()`, wired centrally into `compile.ts` after every emitter runs (mechanics don't vary by generation, only where the result lands — `settings`). Real recursive deep merge (raw wins on conflicts); denylist (`__globals__`/`__dynamic__`/`_element_id` universal, plus v4-only `classes` since `v4.ts` owns that key for style linkage) checked at every nesting depth; all five §8.3 sanitisation rules applied to every string value in the tree. Every violation is a hard error (all-or-nothing, matching `dslVersion`/`parseSpec`) except the external-URL rule, genuinely a warning per the spec's own wording. `reason`/`raw_ratio` were already done (EMCP-048/049) and untouched here. 27 new unit tests, including end-to-end `compile()` tests through the real v3/v4 emitters.
 
-#### [ ] Task 54: Decompiler and round-trip
+#### [x] Task 54: Decompiler and round-trip
 - **ID:** EMCP-054 · **Depends:** EMCP-050, EMCP-051 · **Verify:** unit
 - Semantic equivalence, never byte equality
+- Done: `server/src/dsl/decompile.ts`'s `decompile(nativeElements, siteProfile) → {elements, diagnostics}` inverts the exact same confirmed shapes v3.ts/v4.ts already forward-map — no new research needed. Reuses `domain/detect.ts`'s `detectNodeGeneration()` for dispatch. Never hard-fails (every diagnostic warning/info, never error) — unrecognized widgetType falls back to the lossless `widget` escape rung; legacy sections/unrecognized elTypes fall back to `container`+`raw` (still denylist/sanitisation-checked going back through `compile()`). Unconsumed settings on a recognized node preserved via `raw`, not dropped. 24 unit tests, including 3 genuine round-trip tests through the real committed fixture set (v3-container, deep-nested's 5-level depth, unicode-roundtrip's exact Arabic/CJK content) — not just hand-crafted data.
 
 #### [ ] Task 55: `validate_page_spec` and `apply_page_spec`
 - **ID:** EMCP-055 · **Depends:** EMCP-052, EMCP-053 · **Verify:** live
