@@ -172,3 +172,35 @@ describe('presignReferenceDesignUpload (EMCP-064) — the out-of-band path', () 
     expect(command.__type).toBe('PutObject');
   });
 });
+
+describe('downloadObject (EMCP-065)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sendMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('collects the GetObject response stream into a single Buffer', async () => {
+    async function* body(): AsyncGenerator<Buffer> {
+      yield Buffer.from('hello, ');
+      yield Buffer.from('world');
+    }
+    sendMock.mockResolvedValue({ Body: body() });
+
+    const { downloadObject } = await import('./objectStorage.js');
+    const result = await downloadObject('reference-designs/abc.png', CONFIG);
+
+    expect(result).toEqual(Buffer.from('hello, world'));
+  });
+
+  it('throws ObjectNotFoundError when the object does not exist', async () => {
+    sendMock.mockRejectedValue(new Error('NoSuchKey'));
+
+    const { downloadObject, ObjectNotFoundError } = await import('./objectStorage.js');
+
+    await expect(downloadObject('reference-designs/missing.png', CONFIG)).rejects.toThrow(ObjectNotFoundError);
+  });
+});

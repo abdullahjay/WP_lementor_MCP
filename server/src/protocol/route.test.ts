@@ -126,6 +126,7 @@ describe('MCP protocol route', () => {
       'create_page',
       'describe_widget',
       'edit_elements',
+      'extract_design_tokens',
       'find_elements',
       'get_element',
       'get_global_styles',

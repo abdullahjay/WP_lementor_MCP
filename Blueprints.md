@@ -692,6 +692,20 @@ upload_reference_design: { url? } → { reference_id, resource_link? } | { refer
 
 Live-verified end to end, adversarially, on the real MinIO instance: a real image fetched through a URL was sniffed, stored, and its presigned `resource_link` independently confirmed fetchable (200, correct content type and size) outside the MCP call entirely; the SSRF guard blocked the cloud-metadata link-local address identically to EMCP-063's PHP version; non-image content (a real HTML response) was rejected by content sniffing, not URL/extension inspection; the out-of-band path was exercised for real — a presigned PUT URL was used to `PUT` real image bytes directly (no MCP call involved in the upload itself), and the resulting object was independently confirmed to exist via the MinIO client (`mc stat`), including the real, documented observation that its `Content-Type` metadata came from curl's own default rather than anything this project validated — direct evidence of the "unvalidated out-of-band path" limitation stated above, not just an assertion of it.
 
+### 7.13 `extract_design_tokens`
+
+```
+extract_design_tokens: { reference_id } → { colors: [{hex, matched_token: {id, title, delta_e} | null}] }
+```
+
+**Implemented (EMCP-065).** Colour-only, deliberately — prd.md's own wording for this task ("perceptual colour distance... reconciles against existing kit tokens") says nothing about typography, and extracting font identity from a raster image is a different, much larger problem (OCR plus font recognition) this task does not attempt.
+
+Reads the reference design back from object storage (`downloadObject()`, a new function — the first real reader of anything this project has written to object storage), extracts its dominant colours by downsample-and-histogram (`server/src/ingestion/extractColors.ts`, via `sharp` — the first image-decoding dependency this project has needed), then reconciles each against the site's real kit colours (`get_global_styles`, EMCP-029) using **CIE76 delta-E in CIE L\*a\*b\* space**, not hex/RGB string comparison — Lab space is designed so Euclidean distance within it tracks human colour perception, which raw RGB distance does not (`server/src/ingestion/colorDistance.ts`). A match threshold of 10 (a commonly cited "reads as the same colour family" delta-E boundary) decides whether an extracted colour is reported as matching an existing kit token or as new.
+
+**Re-sniffs the downloaded bytes before decoding them as an image** (`sniffImageMimeType()`, reused from EMCP-064) — `upload_reference_design`'s out-of-band path is documented as completely unvalidated (§7.12), so this is the enforcement point that actually makes that documented limitation harmless rather than just noted: anything non-image that landed in `reference-designs/` via the unvalidated path is refused here, before `sharp` ever touches it.
+
+Live-verified end to end, including the security boundary, not just the happy path: a real fetched reference design's dominant colours were extracted and correctly reported as not matching the live kit's actual colours (a genuinely different palette); a solid-colour test image built to be *exactly* the kit's real `Primary` (`#6EC1E4`) was uploaded via the out-of-band path and correctly matched with `delta_e: 0`; and a malicious SVG payload (the same `<script>`-carrying one EMCP-063/064 used) was uploaded via the unvalidated out-of-band path directly to MinIO, then `extract_design_tokens` was called against it and correctly refused it via content sniffing — proving the two tasks' documented gap (out-of-band ingestion is unvalidated) and its intended mitigation (every read re-validates) both work together as designed, not just individually.
+
 ---
 
 ## 8. Error taxonomy
@@ -806,6 +820,7 @@ The composition model is that MCP clients connect to several servers at once: a 
 | Database | PostgreSQL | §11.3 |
 | Migrations | Drizzle | TypeScript-first, SQL-shaped |
 | Object storage | S3-compatible | Screenshots, reference designs |
+| Image decoding | `sharp` | Added EMCP-065, `extract_design_tokens` — dominant-colour extraction from reference designs |
 | Tests | Vitest (Node), PHPUnit (plugin) | Split per §9.3 |
 
 ### 11.3 What the database holds

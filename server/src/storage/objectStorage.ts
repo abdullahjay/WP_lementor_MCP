@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Readable } from 'node:stream';
 import {
   CreateBucketCommand,
   GetObjectCommand,
@@ -162,4 +163,40 @@ export async function presignReferenceDesignUpload(
   );
 
   return { referenceId: key, uploadUrl };
+}
+
+export class ObjectNotFoundError extends Error {
+  constructor(public readonly key: string) {
+    super(`No object exists at key "${key}".`);
+  }
+}
+
+/**
+ * Reads a reference-design object's bytes back — `extract_design_tokens`
+ * (EMCP-065), the first real reader of anything this project has written
+ * to object storage. `GetObjectCommand`'s `Body` is a Node `Readable` in
+ * this runtime, not a `Buffer` — collected here so every caller works with
+ * plain bytes, matching every other ingestion path's own shape.
+ */
+export async function downloadObject(
+  key: string,
+  config: ObjectStorageConfig = loadObjectStorageConfig(),
+): Promise<Buffer> {
+  const s3 = getClient(config);
+
+  let response;
+  try {
+    response = await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+  } catch {
+    throw new ObjectNotFoundError(key);
+  }
+
+  const stream = response.Body as Readable;
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+
+  return Buffer.concat(chunks);
 }
