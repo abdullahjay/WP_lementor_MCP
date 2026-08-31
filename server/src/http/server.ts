@@ -26,6 +26,7 @@ import { saveAsTemplateTool } from '../tools/saveAsTemplate.js';
 import { applyTemplateTool } from '../tools/applyTemplate.js';
 import { listMediaTool } from '../tools/listMedia.js';
 import { uploadMediaTool } from '../tools/uploadMedia.js';
+import { uploadReferenceDesignTool } from '../tools/uploadReferenceDesign.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -64,6 +65,7 @@ export function buildServer(): FastifyInstance {
   registry.registerTool(applyTemplateTool);
   registry.registerTool(listMediaTool);
   registry.registerTool(uploadMediaTool);
+  registry.registerTool(uploadReferenceDesignTool);
   registerMcpRoute(app, registry);
 
   return app;

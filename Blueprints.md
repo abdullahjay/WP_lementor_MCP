@@ -676,6 +676,22 @@ Every real security control (content-derived MIME sniffing, category-based denia
 
 Live-verified adversarially on `wp-v4-pro` — see §6.11 for the full list (SSRF across four address classes including mid-redirect, `file://` scheme rejection, a `<script>`-carrying SVG rejected despite a spoofed `.jpg` extension and `image/jpeg` `Content-Type`, and successful uploads via both the URL and direct-multipart paths, confirmed visible together in one `list_media` call).
 
+### 7.12 `upload_reference_design`
+
+```
+upload_reference_design: { url? } → { reference_id, resource_link? } | { reference_id, upload_url, message }
+```
+
+**Implemented (EMCP-064), the second half of D1's resolution.** Unlike `upload_media`, a reference design never touches WordPress — it lives in the same S3-compatible object storage `render_preview` already uses (Blueprints.md §11.2), under a `reference-designs/` key prefix, since it is a comparison artifact for `extract_design_tokens`/`compare_to_reference` (not yet built), never content inserted into a page. `server/src/storage/objectStorage.ts` gained `uploadReferenceDesign()` (multi-day TTL, unlike a preview screenshot's hour) and `presignReferenceDesignUpload()`.
+
+**Two modes in one tool, mirroring `publish_draft`'s own established shape** ("call without a token, get instructions for the out-of-band path instead"): given `url`, the server fetches directly; omitted, the tool returns a presigned **PUT** URL — the S3-world equivalent of `upload_media`'s direct-multipart-to-WordPress path — plus a `reference_id` (the object key) allocated up front, so the caller can hand it to a later `compare_to_reference` call without a second round trip once the human's upload completes.
+
+**The URL-fetch security pipeline is reimplemented in TypeScript** (`server/src/ingestion/safeFetch.ts`, `sniffMime.ts`), not shared with `MediaService`'s PHP, since this ingestion path is Node/MinIO-only and never reaches the plugin. Same policy as EMCP-063's PHP version: `http(s)`-only scheme, a manual per-hop redirect loop with `redirect: 'manual'` and independent re-validation of every hop's resolved IP against RFC1918/loopback/link-local/reserved ranges (the TypeScript equivalent of PHP's `FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE`, hand-enumerated since Node has no built-in for it), and content-derived MIME detection — magic-byte signatures for PNG/JPEG/GIF/WEBP, deny-by-default for everything else (no `finfo` equivalent ships with Node, so recognized-format allowlisting stands in for it, achieving the same "not extension-based" property).
+
+**The out-of-band path is deliberately unvalidated — a real, documented limitation, not an oversight.** A presigned PUT goes straight from the uploader to MinIO; nothing server-side ever sees the bytes before they're stored, so none of the URL path's content checks can run. Whatever eventually reads a `reference-designs/` object back (`extract_design_tokens`) must treat every object there as untrusted input regardless of which ingestion path produced it.
+
+Live-verified end to end, adversarially, on the real MinIO instance: a real image fetched through a URL was sniffed, stored, and its presigned `resource_link` independently confirmed fetchable (200, correct content type and size) outside the MCP call entirely; the SSRF guard blocked the cloud-metadata link-local address identically to EMCP-063's PHP version; non-image content (a real HTML response) was rejected by content sniffing, not URL/extension inspection; the out-of-band path was exercised for real — a presigned PUT URL was used to `PUT` real image bytes directly (no MCP call involved in the upload itself), and the resulting object was independently confirmed to exist via the MinIO client (`mc stat`), including the real, documented observation that its `Content-Type` metadata came from curl's own default rather than anything this project validated — direct evidence of the "unvalidated out-of-band path" limitation stated above, not just an assertion of it.
+
 ---
 
 ## 8. Error taxonomy

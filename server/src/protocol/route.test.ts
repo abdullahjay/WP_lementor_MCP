@@ -142,6 +142,7 @@ describe('MCP protocol route', () => {
       'save_as_template',
       'update_page',
       'upload_media',
+      'upload_reference_design',
       'validate_page_spec',
     ]);
   });
