@@ -514,9 +514,10 @@ Gated on D2 and D4.
 - **ID:** EMCP-065 · **Depends:** EMCP-029 · **Verify:** live
 - Perceptual colour distance, not string comparison; reconciles against existing kit tokens
 - Done: colour-only (no typography extraction — outside this task's own wording). Reads a reference design back from object storage (new `downloadObject()`), extracts dominant colours via downsample+histogram (`sharp`, the first image-decoding dependency this project needed), reconciles against `get_global_styles`' real kit colours using CIE76 delta-E in Lab space (`server/src/ingestion/colorDistance.ts`) — genuinely perceptual, not hex/RGB comparison. Re-sniffs downloaded bytes before decoding (defense against EMCP-064's documented unvalidated out-of-band path). Live-verified: real extraction against a genuinely different palette (no false matches), an exact-match test image correctly matched a live kit token at delta_e:0, and a malicious SVG uploaded via the unvalidated out-of-band path was correctly refused at read time.
-#### [ ] Task 66: `compare_to_reference`
+#### [x] Task 66: `compare_to_reference`
 - **ID:** EMCP-066 · **Depends:** EMCP-064, EMCP-035 · **Verify:** live
 - Returns ranked regions and numbers, not pictures
+- Done: reuses render_preview's capture pipeline and extract_design_tokens' CIE76 delta-E machinery, not two new implementations. 6x6 grid region diff, score = 1-(mean deltaE/100) clamped [0,1], top-5-worst regions reported. `breakpoint` (present in this section's frozen signature but never actually wired into render_preview — confirmed by reading its real inputSchema) implemented here for the first time: renderer gained real viewportWidth/viewportHeight support, resolved from get_site_info's real breakpoints, never hardcoded. Live-verified: perfect 1.0 score against the page's own screenshot, meaningful 0.647 against a genuinely different reference, a real mobile-breakpoint render scoring correctly lower (0.984) reflecting an actual responsive layout difference, unknown breakpoint refused with real names, and malicious reference content refused before the renderer was ever called.
 
 ---
 

@@ -21,6 +21,9 @@ export interface RenderRequest {
   selector?: string;
   allowedHost?: string;
   extraHeaders?: Record<string, string>;
+  /** Both required together — see renderer/src/render.ts's own `RenderOptions` doc. */
+  viewportWidth?: number;
+  viewportHeight?: number;
 }
 
 /**
@@ -43,6 +46,11 @@ export async function renderScreenshot(
       ...(request.selector !== undefined && { selector: request.selector }),
       ...(request.allowedHost !== undefined && { allowedHost: request.allowedHost }),
       ...(request.extraHeaders !== undefined && { extraHeaders: request.extraHeaders }),
+      ...(request.viewportWidth !== undefined &&
+        request.viewportHeight !== undefined && {
+          viewportWidth: request.viewportWidth,
+          viewportHeight: request.viewportHeight,
+        }),
     }),
   });
 

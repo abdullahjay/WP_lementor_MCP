@@ -61,6 +61,24 @@ describe('renderScreenshot', () => {
     expect(JSON.parse(init.body as string)).toEqual({ url: 'http://wp-v4-pro/page/' });
   });
 
+  it('sends viewportWidth/viewportHeight together when both are given (EMCP-066)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renderScreenshot({ url: 'http://wp-v4-pro/page/', viewportWidth: 767, viewportHeight: 900 }, RENDERER_URL);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      url: 'http://wp-v4-pro/page/',
+      viewportWidth: 767,
+      viewportHeight: 900,
+    });
+  });
+
   it('throws RendererApiError on a non-2xx response', async () => {
     vi.stubGlobal(
       'fetch',

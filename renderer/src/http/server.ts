@@ -10,6 +10,8 @@ interface RenderRequestBody {
   selector?: unknown;
   allowedHost?: unknown;
   extraHeaders?: unknown;
+  viewportWidth?: unknown;
+  viewportHeight?: unknown;
 }
 
 /**
@@ -62,12 +64,15 @@ export function buildServer(): FastifyInstance {
     const selector = typeof body?.selector === 'string' ? body.selector : undefined;
     const allowedHost = typeof body?.allowedHost === 'string' ? body.allowedHost : undefined;
     const extraHeaders = isStringRecord(body?.extraHeaders) ? body.extraHeaders : undefined;
+    const viewportWidth = typeof body?.viewportWidth === 'number' ? body.viewportWidth : undefined;
+    const viewportHeight = typeof body?.viewportHeight === 'number' ? body.viewportHeight : undefined;
 
     try {
       const png = await renderScreenshot(parsed.toString(), {
         ...(selector !== undefined && { selector }),
         ...(allowedHost !== undefined && { allowedHost }),
         ...(extraHeaders !== undefined && { extraHeaders }),
+        ...(viewportWidth !== undefined && viewportHeight !== undefined && { viewportWidth, viewportHeight }),
       });
       reply.header('content-type', 'image/png');
       return await reply.send(png);

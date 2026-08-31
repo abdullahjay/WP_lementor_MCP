@@ -123,6 +123,7 @@ describe('MCP protocol route', () => {
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
       'apply_page_spec',
       'apply_template',
+      'compare_to_reference',
       'create_page',
       'describe_widget',
       'edit_elements',
