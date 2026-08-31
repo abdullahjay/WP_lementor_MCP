@@ -87,6 +87,22 @@ The server speaks MCP over Streamable HTTP (revision `2026-07-28` — no session
 
 Point your MCP client at `http://localhost:3000/mcp` with that token as a bearer `Authorization` header. The exact client-side configuration syntax depends on which Claude Code version you're running — the curl example above is the ground truth for what a correct request/response looks like if you need to debug a client-side connector config against it.
 
+## Installing the plugin on a real WordPress site
+
+`plugin/`'s own `vendor/` is gitignored and built locally for dev (PHPUnit and its dependencies) — that dev `vendor/` must never ship, both because it drags in test-only packages a real site doesn't need, and because a site owner installing via wp-admin generally has no Composer and no way to run `composer install` themselves.
+
+Build a real, self-contained plugin ZIP instead:
+
+```sh
+sh scripts/build-plugin-zip.sh [version]   # writes dist/emcp.zip
+```
+
+Requires Composer and PHP's `ext-zip` on the machine *building* the zip — never on the target site, which only ever receives the finished archive. The script installs production-only dependencies (`composer install --no-dev`, from the existing `plugin/composer.lock` — run `composer install` in `plugin/` once first if that file doesn't exist yet) into an isolated copy, strips dev-only files (`tests/`, `phpunit.xml`), and zips the result with the correct top-level folder name (`emcp/`) WordPress expects.
+
+Install the resulting `dist/emcp.zip` on any real WordPress site the normal way — **Plugins → Add New → Upload Plugin** in wp-admin, or unzip it into `wp-content/plugins/` directly (e.g. via SFTP or WP-CLI's `wp plugin install dist/emcp.zip --activate`) — then activate it like any other plugin. It needs Elementor active and, per `CLAUDE.md`'s own gotcha, either HTTPS or `WP_ENVIRONMENT_TYPE` set to `local`/`development` for Application Passwords (the plugin's auth mechanism today) to be available at all.
+
+This only packages the **plugin** half. The MCP server (`server/`) still needs somewhere to actually run and reach that site — this repo currently only runs it via the local Docker Compose stack; a real deployment target (hosting, TLS, and eventually OAuth in place of today's local header-auth token) is tracked separately in `prd.md`'s decision table (D2/D4) and not yet built.
+
 ## Resetting a sandbox
 
 ```sh
