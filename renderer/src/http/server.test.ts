@@ -96,6 +96,37 @@ describe('renderer HTTP server', () => {
     });
   });
 
+  it('passes viewportWidth/viewportHeight through when both are given (EMCP-066)', async () => {
+    renderScreenshotMock.mockResolvedValue(Buffer.from('fake-png-bytes'));
+    const app = buildServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/render',
+      payload: { url: 'http://wp-v4-pro/some-page/', viewportWidth: 767, viewportHeight: 900 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(renderScreenshotMock).toHaveBeenCalledWith('http://wp-v4-pro/some-page/', {
+      viewportWidth: 767,
+      viewportHeight: 900,
+    });
+  });
+
+  it('omits viewport entirely when only one of viewportWidth/viewportHeight is given — a partial viewport has no meaning', async () => {
+    renderScreenshotMock.mockResolvedValue(Buffer.from('fake-png-bytes'));
+    const app = buildServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/render',
+      payload: { url: 'http://wp-v4-pro/some-page/', viewportWidth: 767 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(renderScreenshotMock).toHaveBeenCalledWith('http://wp-v4-pro/some-page/', {});
+  });
+
   it('ignores non-string selector/allowedHost and non-string-record extraHeaders rather than passing bad input through', async () => {
     renderScreenshotMock.mockResolvedValue(Buffer.from('fake-png-bytes'));
     const app = buildServer();

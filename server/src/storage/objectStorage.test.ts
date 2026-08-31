@@ -101,3 +101,106 @@ describe('uploadPreviewImage', () => {
     expect((signingClient.config as { endpoint: string }).endpoint).toBe('http://localhost:9000');
   });
 });
+
+describe('uploadReferenceDesign (EMCP-064)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sendMock.mockReset();
+    getSignedUrlMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('stores under the reference-designs/ prefix with an extension matching the content type', async () => {
+    sendMock.mockResolvedValue(undefined);
+    getSignedUrlMock.mockResolvedValue('http://minio.test:9000/emcp-previews/reference-designs/some-uuid.png?sig');
+
+    const { uploadReferenceDesign } = await import('./objectStorage.js');
+    const result = await uploadReferenceDesign(Buffer.from('fake-png'), 'image/png', 3600, CONFIG);
+
+    expect(result.referenceId).toMatch(/^reference-designs\/[0-9a-f-]{36}\.png$/);
+    expect(result.resourceLink).toBe('http://minio.test:9000/emcp-previews/reference-designs/some-uuid.png?sig');
+  });
+
+  it('defaults to a multi-day TTL, not a preview-length one', async () => {
+    sendMock.mockResolvedValue(undefined);
+    getSignedUrlMock.mockResolvedValue('http://minio.test:9000/signed');
+
+    const { uploadReferenceDesign } = await import('./objectStorage.js');
+    await uploadReferenceDesign(Buffer.from('x'), 'image/jpeg', undefined, CONFIG);
+
+    const [, , options] = getSignedUrlMock.mock.calls[0] as [unknown, unknown, { expiresIn: number }];
+    expect(options.expiresIn).toBeGreaterThan(3600);
+  });
+});
+
+describe('presignReferenceDesignUpload (EMCP-064) — the out-of-band path', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sendMock.mockReset();
+    getSignedUrlMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns a referenceId and a presigned PUT url, without ever calling PutObject itself', async () => {
+    sendMock.mockResolvedValue(undefined); // HeadBucket only
+    getSignedUrlMock.mockResolvedValue('http://minio.test:9000/emcp-previews/reference-designs/some-uuid?sig');
+
+    const { presignReferenceDesignUpload } = await import('./objectStorage.js');
+    const result = await presignReferenceDesignUpload(3600, CONFIG);
+
+    expect(result.referenceId).toMatch(/^reference-designs\/[0-9a-f-]{36}$/);
+    expect(result.uploadUrl).toContain('reference-designs');
+    // The bytes never pass through this server — no PutObjectCommand is sent, only signed.
+    const calledTypes = sendMock.mock.calls.map((call) => (call[0] as { __type: string }).__type);
+    expect(calledTypes).not.toContain('PutObject');
+  });
+
+  it('signs the PUT command that was passed to getSignedUrl, not a GET', async () => {
+    sendMock.mockResolvedValue(undefined);
+    getSignedUrlMock.mockResolvedValue('http://minio.test:9000/signed');
+
+    const { presignReferenceDesignUpload } = await import('./objectStorage.js');
+    await presignReferenceDesignUpload(3600, CONFIG);
+
+    const [, command] = getSignedUrlMock.mock.calls[0] as [unknown, { __type: string }];
+    expect(command.__type).toBe('PutObject');
+  });
+});
+
+describe('downloadObject (EMCP-065)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sendMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('collects the GetObject response stream into a single Buffer', async () => {
+    async function* body(): AsyncGenerator<Buffer> {
+      yield Buffer.from('hello, ');
+      yield Buffer.from('world');
+    }
+    sendMock.mockResolvedValue({ Body: body() });
+
+    const { downloadObject } = await import('./objectStorage.js');
+    const result = await downloadObject('reference-designs/abc.png', CONFIG);
+
+    expect(result).toEqual(Buffer.from('hello, world'));
+  });
+
+  it('throws ObjectNotFoundError when the object does not exist', async () => {
+    sendMock.mockRejectedValue(new Error('NoSuchKey'));
+
+    const { downloadObject, ObjectNotFoundError } = await import('./objectStorage.js');
+
+    await expect(downloadObject('reference-designs/missing.png', CONFIG)).rejects.toThrow(ObjectNotFoundError);
+  });
+});

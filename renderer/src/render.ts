@@ -27,6 +27,17 @@ export interface RenderOptions {
   allowedHost?: string;
   /** Extra headers sent with every request this render makes — e.g. a preview token (Blueprints.md §6.5: "sent as a header where possible"). */
   extraHeaders?: Record<string, string>;
+  /**
+   * Both required together (a viewport needs both dimensions) —
+   * `compare_to_reference` (EMCP-066) is this option's first caller,
+   * resolving a real breakpoint width from `GET /site`'s own breakpoints
+   * map (never hardcoded — CLAUDE.md's "introspect Elementor" discipline)
+   * rather than assuming a fixed device size. Omitted, Playwright's own
+   * default viewport applies, matching every render before this option
+   * existed.
+   */
+  viewportWidth?: number;
+  viewportHeight?: number;
 }
 
 const SETTLE_TIMEOUT_MS = 5_000;
@@ -49,7 +60,11 @@ const SETTLE_TIMEOUT_MS = 5_000;
  */
 export async function renderScreenshot(url: string, options: RenderOptions = {}): Promise<Buffer> {
   const browser = await getBrowser();
-  const context = await browser.newContext();
+  const context = await browser.newContext(
+    options.viewportWidth !== undefined && options.viewportHeight !== undefined
+      ? { viewport: { width: options.viewportWidth, height: options.viewportHeight } }
+      : {},
+  );
 
   await context.route('**/*', async (route) => {
     try {

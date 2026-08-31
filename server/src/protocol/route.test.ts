@@ -123,15 +123,18 @@ describe('MCP protocol route', () => {
     expect(json.result.tools.map((tool) => tool.name)).toEqual([
       'apply_page_spec',
       'apply_template',
+      'compare_to_reference',
       'create_page',
       'describe_widget',
       'edit_elements',
+      'extract_design_tokens',
       'find_elements',
       'get_element',
       'get_global_styles',
       'get_page_structure',
       'get_site_info',
       'list_changes',
+      'list_media',
       'list_pages',
       'list_templates',
       'list_widgets',
@@ -140,6 +143,8 @@ describe('MCP protocol route', () => {
       'rollback',
       'save_as_template',
       'update_page',
+      'upload_media',
+      'upload_reference_design',
       'validate_page_spec',
     ]);
   });

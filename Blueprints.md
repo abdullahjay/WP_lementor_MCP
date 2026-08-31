@@ -353,7 +353,7 @@ Every route has a real permission callback. Cookie-authenticated requests are re
 | POST | `/documents/{id}/publish` | Promote autosave onto parent, approval-token gated (§7.5) |
 | GET | `/kit` | Global styles |
 | GET | `/global-classes` | v4 classes and variables |
-| GET/POST | `/media` | List / upload |
+| GET/POST | `/media` | List / upload — URL fetch (SSRF-hardened) or direct multipart, §6.11, EMCP-063 |
 | GET/POST | `/templates` | List / save — real table (§6.10, EMCP-060), spec stored opaquely |
 | GET | `/templates/{id}` | One template's full spec (§6.10, EMCP-061) — `apply_template`'s read |
 | POST | `/preview-token` | Signed single-post token (§6.5) |
@@ -495,6 +495,22 @@ Cross-site portability (prd.md Task 62, not yet built) comes from the DSL spec i
 
 **EMCP-061 addendum:** `GET /templates/{id}` — `{id, name, spec, created_at}`, `404` if unknown — added once `apply_template` (§7.9) actually needed a specific template's full `spec`; `list_all()`/`GET /templates` deliberately never returns it (a lightweight listing, same split `GET /documents` vs. `GET /documents/{id}` already establishes).
 
+### 6.11 Media
+
+**Implemented (EMCP-063), resolving D1** ("reference-design ingestion — URL vs out-of-band upload" — resolved as **both**). `GET /media` → `{media: [{id, url, filename, mime_type, created_at}]}`. `POST /media` accepts exactly one of `{ url, filename? }` (server-side fetch) or a multipart `file` field — never both, never neither. Every real validation step (solution.md §9.7, implemented literally, not just cited) runs identically for both paths in `plugin/src/Media/MediaService.php`:
+
+- **Content-derived MIME, not extension-based.** Every payload is sniffed with `finfo` (`FILEINFO_MIME_TYPE`) before anything about its filename or declared `Content-Type` is trusted.
+- **Category-based denial, not SVG alone.** An explicit denylist (`image/svg+xml`, `text/html`, `application/xhtml+xml`, `text/xml`, `application/xml`, `application/pdf`, plus PHP MIME variants) checked against the *sniffed* type.
+- **Decoded pixel cap** (~40 megapixels) against decompression-bomb-style images, via `getimagesizefromstring()`.
+- **EXIF stripped** by round-tripping raster images through GD (`imagecreatefromstring()` → re-encode) — GD never preserves EXIF, so this is stripping via a lossless-for-the-purpose side effect of re-encoding, not a dedicated EXIF parser. Best-effort: an image GD can't decode keeps its original bytes rather than failing the whole upload.
+- **Unique filenames** via WordPress's own `wp_unique_filename()`.
+
+**The URL path is SSRF-hardened per solution.md §9.5, implemented as a manual per-hop redirect loop** (`fetch_url_safely()`), not delegated to WordPress's native redirect-following (which would follow a `Location` header to an internal address without re-validating it — exactly the gap §9.5 calls out). Each hop: `validate_url_safe()` rejects non-`http(s)` schemes, then resolves the host and rejects it via `filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)` — the standard PHP idiom for "not RFC1918, not loopback/link-local/reserved," not a hand-rolled CIDR list — *before* the request for that hop is even made. `redirection => 0` on every `wp_remote_get()` call disables native following entirely; a 3xx response's `Location` header becomes the next loop iteration's URL, re-validated from scratch.
+
+**Node side, D1's "URL" half:** `upload_media` (`{url, filename?} → {id, url, filename, mime_type, width, height}`) — the only ingestion shape an MCP tool can offer at all, since tool inputs are JSON and a model cannot re-emit an image it was shown as bytes. **D1's "out-of-band" half needs no MCP tool** — a human calls `POST /media` directly with a multipart `file`, bypassing the model entirely; `list_media` (`{} → {media: [...]}`) is how the model discovers what an out-of-band upload produced, doubling as the general listing tool.
+
+Live-verified on `wp-v4-pro`, adversarially, not just the happy path: a URL that redirects through a public host to `http://127.0.0.1/wp-login.php` was blocked at the *second* hop (proving per-redirect revalidation, not just entry-URL checking); direct requests to a loopback address, the cloud-metadata link-local address (`169.254.169.254`), and an internal Docker service hostname (`db-wp`, which resolves to a private container IP) were all blocked with the same `emcp_ssrf_blocked` diagnosis; a `file://` URL was rejected on scheme alone; an SVG payload containing a `<script>` tag, uploaded with a spoofed `.jpg` extension and a spoofed `image/jpeg` declared `Content-Type` via direct multipart upload, was correctly detected as `image/svg+xml` by content sniffing and rejected — extension and declared type were both wrong, and neither was trusted. A genuine image succeeded via both paths (URL fetch through a redirect; direct multipart upload), with real dimensions extracted and a real attachment created, confirmed via `list_media` showing both. EXIF stripping's code path was not independently live-confirmed against a source image carrying real EXIF data — noted as an honest gap, not silently assumed correct.
+
 ---
 
 ## 7. Tool contracts
@@ -563,6 +579,16 @@ compare_to_reference: { post_id, reference_id, breakpoint? } → { score, region
 Defaults to a signed `resource_link`, inline image only on request. One image per call. Region-scoped capture via `element_id`. Captures `.elementor-{post_id}`. Never returns SVG.
 
 `compare_to_reference` returns **numbers** — ranked regions with bounding boxes — not pictures.
+
+**`compare_to_reference` implemented (EMCP-066).** Reuses `render_preview`'s exact capture pipeline (document lookup, the `WP_HOME`/renderer-reachability host rewrite, preview token) rather than a second implementation, and `extract_design_tokens`' perceptual-distance machinery (CIE76 delta-E in Lab space, EMCP-065's `colorDistance.ts`) rather than a raw pixel-difference count, which would conflate "shifted by a pixel" with "genuinely different content."
+
+**Algorithm, concretely:** the screenshot is resized to the reference design's own dimensions (`fit: 'fill'`, deliberately allowing aspect-ratio distortion — a live page render and a reference mockup are essentially never pixel-identical in size, and refusing to compare mismatched dimensions would make the tool useless for its actual purpose). Both images are then divided into the same 6×6 grid; each region's average colour is compared via delta-E. `score` is `1 − (mean region delta-E / 100)`, clamped to `[0, 1]` — 1.0 perceptually identical, 0.0 maximally different, the same 0–1 scale every other scored output in this project (`nativeness`, `raw_ratio`) already uses. `regions[]` reports only the **worst** mismatches (top 5 by delta-E, ranked descending), matching solution.md's own "ranked bounding boxes of worst mismatches" — not every grid cell.
+
+**`breakpoint`, present in this section's own frozen signature for both tools but never actually wired into `render_preview` (EMCP-034 shipped without it — its real `inputSchema` has no `breakpoint` property, confirmed by reading the tool's own source, not assumed from this table), is implemented here.** Resolved against the connected site's **real** breakpoints (`get_site_info`'s own introspected `value`s — CLAUDE.md: "introspect Elementor, never hardcode breakpoints"), not a fixed device-size table. This required extending the renderer itself: `renderer/src/render.ts`'s `RenderOptions` gained `viewportWidth`/`viewportHeight` (both required together — a partial viewport has no meaning), threaded through `POST /render`'s body and `server/src/renderer/client.ts`'s `RenderRequest`. Omitted, the renderer's own default viewport applies, identical to every `render_preview` capture today. `render_preview`'s own signature is untouched — extending it similarly is a deliberate, separate scope boundary, not done in this task.
+
+**The reference-design content-sniffing defense (§7.13's own pattern) applies here too, first** — before the page is ever rendered, not after — so an untrusted `reference_id` (e.g. one populated via `upload_reference_design`'s unvalidated out-of-band path) never wastes a real renderer call.
+
+Live-verified end to end on `wp-v4-pro`, both directions: a real page's own `render_preview` screenshot, re-uploaded as its own reference design, compared against a fresh render of the same unchanged page scored a perfect `1.0` with every region at `delta_e: 0`; a genuinely mismatched reference design (an unrelated solid-colour test image) scored `0.647` with real, non-zero region deltas; a real `breakpoint: "mobile"` comparison rendered at the site's actual mobile viewport width (767px) and correctly scored slightly lower (`0.984`) than the same comparison at desktop width, reflecting a real responsive layout difference, not noise; an unknown breakpoint name was refused, naming the site's real known breakpoints; and a malicious SVG reference (reused from §6.11/§7.13's own adversarial tests) was refused via content sniffing before the renderer was ever called.
 
 ### 7.5 `publish_draft`
 
@@ -634,6 +660,61 @@ out: { document_hash, diagnostics[], nativeness, raw_ratio, applied: bool, path:
 **"Regenerates element IDs" (prd.md) needed no new code** — `compile()` already generates fresh, whole-tree-unique ids on every call (`generateUniqueId()`, EMCP-049), so applying the same template twice (to the same page or different ones) produces two different id sets simply because each is an independent `compile()` invocation, never a copy of a prior result. Confirmed, not assumed: a unit test applies the same template twice and asserts the resulting element ids differ; live-verified too (see below).
 
 Live-verified end to end on `wp-v4-pro`: a template saved from one page's real content (§7.8's own round-trip test) applied cleanly to a *different*, freshly created draft page — the target page's content matched the template exactly (heading/button text, real `e-heading`/`e-button` widget types) with genuinely fresh element ids (`8b1a1e6`/`b4de8ce`, distinct from the source page's own `43b1180`/`dbe4601`-style ids from earlier in the same session); an unknown `template_id` was refused with a real `404`-derived message before the target document was ever read (`getDocument` confirmed never called); `list_changes` showed a real `apply_template` ledger row with the correct `post_id`, proving the shared write pipeline's ledger/snapshot/idempotency machinery works identically through this second caller, not just through `apply_page_spec`.
+
+### 7.10 Cross-sandbox portability (EMCP-062)
+
+**Verified live across both real sandboxes, no new code needed** — the mechanisms this section exercises (`WIDGET_NOT_AVAILABLE`, `dry_run`'s no-write guarantee, generation-agnostic DSL node types) were already built and unit-tested by EMCP-055/060/061; this task's job was confirming they hold against a second, genuinely different real site, not `wp-v4-pro` mocked as if it were `wp-v3-free`.
+
+**Architectural clarification found while testing, not a bug:** "one connector = one site" (solution.md §3) means a single running server instance only ever talks to one `WP_BASE_URL`. Templates are stored site-side (§6.10) — `wp-v4-pro`'s `emcp_templates` table and `wp-v3-free`'s are two entirely separate tables. `apply_template` therefore cannot move a template *between* sites by `template_id` alone within one session; genuine cross-site portability happens at the **spec** level — a caller reads a template's `spec` via `GET /templates/{id}` on site A's connector, then either re-saves it via `POST /templates` on site B's connector (to `apply_template` it there by id) or passes it straight into `apply_page_spec`/`validate_page_spec` with `dry_run` on site B directly. This is a real, previously-undocumented boundary of the design — recorded here rather than left implicit.
+
+Reproduced live using a second `mcp` container instance pointed at `wp-v3-free` (`WP_BASE_URL`/`WP_AUTH_APP_PASSWORD` overridden via `docker compose run`) alongside the existing `wp-v4-pro`-pointed one, confirming both `generation_default`/`pro_tier` genuinely differed (`v4`/`essential`-tier features present vs. `v3`/`free`) before trusting any result:
+
+- A spec using the `widget` escape rung with a genuinely v4-only widget (`e-heading`, absent from `wp-v3-free`'s real 141-widget registry — confirmed via `list_widgets`, only `e-component` among `e-`-prefixed names exists there) was refused by `validate_page_spec` with `WIDGET_NOT_AVAILABLE`, naming the widget and listing the site's real `allowed` registry.
+- The same spec through `apply_page_spec`'s `dry_run: true` against a real `wp-v3-free` draft page was refused identically (`applied: false`) — confirmed via a follow-up `get_page_structure` that the page's `document_hash` and `elements` were completely unchanged, proving `dry_run` genuinely never reached the write path, not just that it reported `applied: false`.
+- **The positive case, not just the negative one:** the *exact* spec `save_as_template` had decompiled from a real `wp-v4-pro` page (§7.8, using the DSL's generation-agnostic `heading`/`button` node types, not the `widget` escape rung) validated cleanly (`valid: true`, `nativeness: 1`) against `wp-v3-free`, and — applied for real — produced native `elType: "widget", widgetType: "heading"`/`"button"` elements (`generation: "v3"`, confirmed via `get_page_structure`), the site's real legacy widgets, not `e-heading`/`e-button`. Same content, correctly re-targeted per-site by `compile()`'s own generation dispatch — this is the actual value cross-sandbox portability is for, and it works.
+
+### 7.11 `upload_media` / `list_media`
+
+```
+list_media:   {} → { media: [{id, url, filename, mime_type, created_at}] }
+upload_media: { url, filename? } → { id, url, filename, mime_type, width, height }
+```
+
+**Implemented (EMCP-063).** `upload_media` is the URL half of D1's resolution — the only ingestion shape an MCP tool input (JSON) can carry. `list_media` is deliberately also how a human's **out-of-band** upload (a direct multipart `POST /media`, §6.11) becomes visible to the model — there is no separate "notify the model of an out-of-band upload" mechanism; `list_media` already shows every attachment regardless of how it arrived.
+
+Every real security control (content-derived MIME sniffing, category-based denial, SSRF-hardened URL fetch with per-redirect revalidation, pixel-dimension cap, EXIF strip, unique filenames) lives plugin-side (`MediaService`, §6.11) — this tool layer is thin, matching every other read/write split this project has already established.
+
+Live-verified adversarially on `wp-v4-pro` — see §6.11 for the full list (SSRF across four address classes including mid-redirect, `file://` scheme rejection, a `<script>`-carrying SVG rejected despite a spoofed `.jpg` extension and `image/jpeg` `Content-Type`, and successful uploads via both the URL and direct-multipart paths, confirmed visible together in one `list_media` call).
+
+### 7.12 `upload_reference_design`
+
+```
+upload_reference_design: { url? } → { reference_id, resource_link? } | { reference_id, upload_url, message }
+```
+
+**Implemented (EMCP-064), the second half of D1's resolution.** Unlike `upload_media`, a reference design never touches WordPress — it lives in the same S3-compatible object storage `render_preview` already uses (Blueprints.md §11.2), under a `reference-designs/` key prefix, since it is a comparison artifact for `extract_design_tokens`/`compare_to_reference` (not yet built), never content inserted into a page. `server/src/storage/objectStorage.ts` gained `uploadReferenceDesign()` (multi-day TTL, unlike a preview screenshot's hour) and `presignReferenceDesignUpload()`.
+
+**Two modes in one tool, mirroring `publish_draft`'s own established shape** ("call without a token, get instructions for the out-of-band path instead"): given `url`, the server fetches directly; omitted, the tool returns a presigned **PUT** URL — the S3-world equivalent of `upload_media`'s direct-multipart-to-WordPress path — plus a `reference_id` (the object key) allocated up front, so the caller can hand it to a later `compare_to_reference` call without a second round trip once the human's upload completes.
+
+**The URL-fetch security pipeline is reimplemented in TypeScript** (`server/src/ingestion/safeFetch.ts`, `sniffMime.ts`), not shared with `MediaService`'s PHP, since this ingestion path is Node/MinIO-only and never reaches the plugin. Same policy as EMCP-063's PHP version: `http(s)`-only scheme, a manual per-hop redirect loop with `redirect: 'manual'` and independent re-validation of every hop's resolved IP against RFC1918/loopback/link-local/reserved ranges (the TypeScript equivalent of PHP's `FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE`, hand-enumerated since Node has no built-in for it), and content-derived MIME detection — magic-byte signatures for PNG/JPEG/GIF/WEBP, deny-by-default for everything else (no `finfo` equivalent ships with Node, so recognized-format allowlisting stands in for it, achieving the same "not extension-based" property).
+
+**The out-of-band path is deliberately unvalidated — a real, documented limitation, not an oversight.** A presigned PUT goes straight from the uploader to MinIO; nothing server-side ever sees the bytes before they're stored, so none of the URL path's content checks can run. Whatever eventually reads a `reference-designs/` object back (`extract_design_tokens`) must treat every object there as untrusted input regardless of which ingestion path produced it.
+
+Live-verified end to end, adversarially, on the real MinIO instance: a real image fetched through a URL was sniffed, stored, and its presigned `resource_link` independently confirmed fetchable (200, correct content type and size) outside the MCP call entirely; the SSRF guard blocked the cloud-metadata link-local address identically to EMCP-063's PHP version; non-image content (a real HTML response) was rejected by content sniffing, not URL/extension inspection; the out-of-band path was exercised for real — a presigned PUT URL was used to `PUT` real image bytes directly (no MCP call involved in the upload itself), and the resulting object was independently confirmed to exist via the MinIO client (`mc stat`), including the real, documented observation that its `Content-Type` metadata came from curl's own default rather than anything this project validated — direct evidence of the "unvalidated out-of-band path" limitation stated above, not just an assertion of it.
+
+### 7.13 `extract_design_tokens`
+
+```
+extract_design_tokens: { reference_id } → { colors: [{hex, matched_token: {id, title, delta_e} | null}] }
+```
+
+**Implemented (EMCP-065).** Colour-only, deliberately — prd.md's own wording for this task ("perceptual colour distance... reconciles against existing kit tokens") says nothing about typography, and extracting font identity from a raster image is a different, much larger problem (OCR plus font recognition) this task does not attempt.
+
+Reads the reference design back from object storage (`downloadObject()`, a new function — the first real reader of anything this project has written to object storage), extracts its dominant colours by downsample-and-histogram (`server/src/ingestion/extractColors.ts`, via `sharp` — the first image-decoding dependency this project has needed), then reconciles each against the site's real kit colours (`get_global_styles`, EMCP-029) using **CIE76 delta-E in CIE L\*a\*b\* space**, not hex/RGB string comparison — Lab space is designed so Euclidean distance within it tracks human colour perception, which raw RGB distance does not (`server/src/ingestion/colorDistance.ts`). A match threshold of 10 (a commonly cited "reads as the same colour family" delta-E boundary) decides whether an extracted colour is reported as matching an existing kit token or as new.
+
+**Re-sniffs the downloaded bytes before decoding them as an image** (`sniffImageMimeType()`, reused from EMCP-064) — `upload_reference_design`'s out-of-band path is documented as completely unvalidated (§7.12), so this is the enforcement point that actually makes that documented limitation harmless rather than just noted: anything non-image that landed in `reference-designs/` via the unvalidated path is refused here, before `sharp` ever touches it.
+
+Live-verified end to end, including the security boundary, not just the happy path: a real fetched reference design's dominant colours were extracted and correctly reported as not matching the live kit's actual colours (a genuinely different palette); a solid-colour test image built to be *exactly* the kit's real `Primary` (`#6EC1E4`) was uploaded via the out-of-band path and correctly matched with `delta_e: 0`; and a malicious SVG payload (the same `<script>`-carrying one EMCP-063/064 used) was uploaded via the unvalidated out-of-band path directly to MinIO, then `extract_design_tokens` was called against it and correctly refused it via content sniffing — proving the two tasks' documented gap (out-of-band ingestion is unvalidated) and its intended mitigation (every read re-validates) both work together as designed, not just individually.
 
 ---
 
@@ -749,6 +830,7 @@ The composition model is that MCP clients connect to several servers at once: a 
 | Database | PostgreSQL | §11.3 |
 | Migrations | Drizzle | TypeScript-first, SQL-shaped |
 | Object storage | S3-compatible | Screenshots, reference designs |
+| Image decoding | `sharp` | Added EMCP-065, `extract_design_tokens` — dominant-colour extraction from reference designs |
 | Tests | Vitest (Node), PHPUnit (plugin) | Split per §9.3 |
 
 ### 11.3 What the database holds

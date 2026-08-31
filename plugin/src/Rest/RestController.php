@@ -206,5 +206,25 @@ final class RestController {
 				'permission_callback' => [ Capabilities::class, 'can_read' ],
 			]
 		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/media',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ new MediaController(), 'index' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/media',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ new MediaController(), 'create' ],
+				'permission_callback' => [ Capabilities::class, 'can_read' ],
+			]
+		);
 	}
 }

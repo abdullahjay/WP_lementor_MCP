@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Readable } from 'node:stream';
 import {
   CreateBucketCommand,
   GetObjectCommand,
@@ -85,4 +86,117 @@ export async function uploadPreviewImage(
   );
 
   return { resourceLink, key };
+}
+
+/**
+ * Uploads reference-design bytes already fetched and validated by the
+ * caller (`upload_reference_design`, EMCP-064) — Blueprints.md §11.2's
+ * "Object storage: Screenshots, reference designs," the same bucket
+ * `render_preview` already uses, under its own `reference-designs/` prefix.
+ * Unlike a preview screenshot (an ephemeral capture artifact), a reference
+ * design is meant to be reused across many `compare_to_reference` calls, so
+ * the default TTL is measured in days, not the hour a preview link gets.
+ */
+export async function uploadReferenceDesign(
+  bytes: Buffer,
+  contentType: string,
+  ttlSeconds = 7 * 24 * 3600,
+  config: ObjectStorageConfig = loadObjectStorageConfig(),
+): Promise<{ referenceId: string; resourceLink: string }> {
+  const s3 = getClient(config);
+  await ensureBucket(s3, config.bucket);
+
+  const extension = contentType.split('/')[1] ?? 'bin';
+  const key = `reference-designs/${randomUUID()}.${extension}`;
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: bytes,
+      ContentType: contentType,
+    }),
+  );
+
+  const resourceLink = await getSignedUrl(
+    getSigningClient(config),
+    new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+    { expiresIn: ttlSeconds },
+  );
+
+  return { referenceId: key, resourceLink };
+}
+
+/**
+ * The out-of-band half of D1's resolution for reference designs: a
+ * presigned **PUT** URL a human uses to upload directly to object storage,
+ * bypassing the model entirely — the S3-world equivalent of `upload_media`
+ * (EMCP-063)'s direct-multipart-to-WordPress path. The `referenceId`
+ * (object key) is allocated up front, before anything is actually
+ * uploaded, so the caller can hand it to `compare_to_reference` later
+ * without a second round trip to discover what id the upload landed under.
+ *
+ * **Deliberately un-validated, unlike every other ingestion path in this
+ * project** — a presigned PUT goes straight from the uploader to MinIO;
+ * nothing server-side ever sees the bytes before they're stored, so none
+ * of §9.7's content-derived MIME/pixel-cap/EXIF checks can run here. This
+ * is an inherent property of presigned uploads, not an oversight. Whatever
+ * later reads a `reference-designs/` object back (`extract_design_tokens`,
+ * not yet built) must treat every object there as untrusted input and
+ * re-validate independently — the same discipline `sniffImageMimeType()`
+ * already applies to the URL-fetch path, just not enforceable at write
+ * time for this one.
+ */
+export async function presignReferenceDesignUpload(
+  ttlSeconds = 3600,
+  config: ObjectStorageConfig = loadObjectStorageConfig(),
+): Promise<{ referenceId: string; uploadUrl: string }> {
+  const s3 = getClient(config);
+  await ensureBucket(s3, config.bucket);
+
+  const key = `reference-designs/${randomUUID()}`;
+
+  const uploadUrl = await getSignedUrl(
+    getSigningClient(config),
+    new PutObjectCommand({ Bucket: config.bucket, Key: key }),
+    { expiresIn: ttlSeconds },
+  );
+
+  return { referenceId: key, uploadUrl };
+}
+
+export class ObjectNotFoundError extends Error {
+  constructor(public readonly key: string) {
+    super(`No object exists at key "${key}".`);
+  }
+}
+
+/**
+ * Reads a reference-design object's bytes back — `extract_design_tokens`
+ * (EMCP-065), the first real reader of anything this project has written
+ * to object storage. `GetObjectCommand`'s `Body` is a Node `Readable` in
+ * this runtime, not a `Buffer` — collected here so every caller works with
+ * plain bytes, matching every other ingestion path's own shape.
+ */
+export async function downloadObject(
+  key: string,
+  config: ObjectStorageConfig = loadObjectStorageConfig(),
+): Promise<Buffer> {
+  const s3 = getClient(config);
+
+  let response;
+  try {
+    response = await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+  } catch {
+    throw new ObjectNotFoundError(key);
+  }
+
+  const stream = response.Body as Readable;
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+
+  return Buffer.concat(chunks);
 }

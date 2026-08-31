@@ -21,7 +21,7 @@ Not loop tasks. These need a human and gate the tasks named.
 
 | # | Decision | Gates |
 |---|---|---|
-| D1 | Reference-design ingestion — URL vs out-of-band upload (`Blueprints.md` §12.2) | EMCP-063..066, and every visual criterion until settled |
+| D1 | ~~Reference-design ingestion — URL vs out-of-band upload~~ **RESOLVED 2026-08-28: both.** `upload_reference_design` accepts a URL (server-side fetch, egress-filtered/SSRF-hardened the same way `upload_media`'s URL path is — solution.md §9.5: block RFC1918/loopback/link-local, re-check after every redirect, allowlist `http(s)` only) *and* an out-of-band upload path for the pasted-into-chat-mockup case a model genuinely cannot re-emit as bytes. Mechanism for the out-of-band path is EMCP-064's own design question — deliberately not settled here, mirroring D3's own two-step resolution (channel chosen first, exact implementation in the task itself). | EMCP-063..066 (unblocked) |
 | D2 | IdP selection against `solution.md` §9.3 | EMCP-056..059. Long lead time — start now |
 | D3 | ~~Approval channel for `publish_draft` (Slack recommended)~~ **RESOLVED 2026-08-28: a wp-admin approval screen** (`plugin/src/Admin/PublishApprovalPage.php`), not Slack/email — needs no new external service/credentials and satisfies "a channel the model cannot write to" for free, since this server only ever holds an Application Password, never a WordPress cookie session. See EMCP-047. | EMCP-047 (unblocked) |
 | D4 | Production hosting — KMS, network segmentation, TLS | EMCP-056..059, deployment |
@@ -494,25 +494,30 @@ Gated on D2 and D4.
 - **ID:** EMCP-061 · **Depends:** EMCP-060 · **Verify:** live
 - Regenerates element IDs
 - Done: shares `apply_page_spec`'s entire write pipeline via a new `server/src/tools/applyCompiledSpec.ts` (document fetch, `compile()`, dry_run short-circuit, snapshot/write/cache-invalidate, ledger, idempotency) — `apply_template.ts` only fetches the template's spec (`GET /templates/{id}`, a new route added for this) and hands off. ID regeneration needed no new code: `compile()` already generates fresh unique ids every call. Live-verified: a template saved from one page applied cleanly to a different page with genuinely fresh element ids, an unknown template_id refused with a 404 before any document read, and a real `apply_template` ledger row confirmed via `list_changes`.
-#### [ ] Task 62: Cross-sandbox portability
+#### [x] Task 62: Cross-sandbox portability
 - **ID:** EMCP-062 · **Depends:** EMCP-061 · **Verify:** live
 - `dry_run` reports missing widgets when a Pro-authored template targets the Free sandbox
+- Done: pure live verification, no new code — ran a second mcp instance pointed at wp-v3-free (confirmed genuinely v3/free via get_site_info) alongside wp-v4-pro's. A v4-only-widget spec was refused by both validate_page_spec and apply_page_spec's dry_run (confirmed no write via a follow-up read); the same spec save_as_template had decompiled from a real page validated cleanly and applied for real, producing native v3 heading/button widgets — genuine cross-generation portability, not just failure detection. Found and documented a real architectural boundary: templates are stored per-site, so cross-site movement happens at the spec level (re-POST /templates on the target site), not via template_id across connectors.
 
 ### INGESTION AND COMPARISON
 
-Gated on D1.
+~~Gated on D1.~~ Unblocked 2026-08-28 — see the decision table above.
 
-#### [ ] Task 63: `upload_media` and `list_media`
+#### [x] Task 63: `upload_media` and `list_media`
 - **ID:** EMCP-063 · **Depends:** EMCP-004 · **Verify:** live
 - Content-derived MIME validation; category-based denial, not SVG alone; decoded pixel caps; EXIF stripped; unique filenames
-#### [ ] Task 64: `upload_reference_design`
-- **ID:** EMCP-064 · **Depends:** D1 · **Verify:** live
-#### [ ] Task 65: `extract_design_tokens`
+- Done: `plugin/src/Media/MediaService.php` runs the full solution.md §9.7 checklist for both ingestion paths (URL fetch, direct multipart). SSRF hardening (§9.5) via a manual per-hop redirect loop (`redirection => 0`, `FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE` on the resolved IP at every hop, not just the entry URL). `upload_media`/`list_media` MCP tools cover D1's "URL" half; the "out-of-band" half needs no tool at all — a human calls `POST /media` directly, `list_media` surfaces the result. Live-verified adversarially: SSRF blocked across loopback/link-local-metadata/internal-hostname/file-scheme, a redirect-to-loopback caught mid-chain, an SVG-with-script payload rejected despite a spoofed .jpg extension and Content-Type (content-derived, not extension-based, proven not just claimed), and real uploads succeeding via both paths.
+#### [x] Task 64: `upload_reference_design`
+- **ID:** EMCP-064 · **Depends:** D1 (resolved 2026-08-28: URL + out-of-band, both) · **Verify:** live
+- Done: two modes in one tool (mirrors publish_draft's shape) — `{url}` fetches directly (SSRF-hardened, TypeScript reimplementation of EMCP-063's PHP pipeline since this bypasses WordPress entirely); omitted `url` returns a presigned MinIO PUT URL for out-of-band upload plus a pre-allocated `reference_id`. Stores into the same object-storage bucket `render_preview` uses (Blueprints.md §11.2's own design), under `reference-designs/`, never WordPress's media library. Content-derived MIME via magic-byte sniffing (`server/src/ingestion/sniffMime.ts`) since Node has no `finfo` equivalent. The out-of-band path is deliberately unvalidated (presigned PUT bypasses all server-side checks) — documented as a real limitation for `extract_design_tokens` to account for later, not silently assumed safe. Live-verified adversarially: real image fetch+store+fetchable-link confirmed independently, SSRF blocked, non-image content rejected by sniffing, and the out-of-band PUT path exercised for real with the resulting MinIO object independently confirmed via `mc stat`.
+#### [x] Task 65: `extract_design_tokens`
 - **ID:** EMCP-065 · **Depends:** EMCP-029 · **Verify:** live
 - Perceptual colour distance, not string comparison; reconciles against existing kit tokens
-#### [ ] Task 66: `compare_to_reference`
+- Done: colour-only (no typography extraction — outside this task's own wording). Reads a reference design back from object storage (new `downloadObject()`), extracts dominant colours via downsample+histogram (`sharp`, the first image-decoding dependency this project needed), reconciles against `get_global_styles`' real kit colours using CIE76 delta-E in Lab space (`server/src/ingestion/colorDistance.ts`) — genuinely perceptual, not hex/RGB comparison. Re-sniffs downloaded bytes before decoding (defense against EMCP-064's documented unvalidated out-of-band path). Live-verified: real extraction against a genuinely different palette (no false matches), an exact-match test image correctly matched a live kit token at delta_e:0, and a malicious SVG uploaded via the unvalidated out-of-band path was correctly refused at read time.
+#### [x] Task 66: `compare_to_reference`
 - **ID:** EMCP-066 · **Depends:** EMCP-064, EMCP-035 · **Verify:** live
 - Returns ranked regions and numbers, not pictures
+- Done: reuses render_preview's capture pipeline and extract_design_tokens' CIE76 delta-E machinery, not two new implementations. 6x6 grid region diff, score = 1-(mean deltaE/100) clamped [0,1], top-5-worst regions reported. `breakpoint` (present in this section's frozen signature but never actually wired into render_preview — confirmed by reading its real inputSchema) implemented here for the first time: renderer gained real viewportWidth/viewportHeight support, resolved from get_site_info's real breakpoints, never hardcoded. Live-verified: perfect 1.0 score against the page's own screenshot, meaningful 0.647 against a genuinely different reference, a real mobile-breakpoint render scoring correctly lower (0.984) reflecting an actual responsive layout difference, unknown breakpoint refused with real names, and malicious reference content refused before the renderer was ever called.
 
 ---
 
