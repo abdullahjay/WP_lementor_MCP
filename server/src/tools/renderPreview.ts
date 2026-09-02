@@ -111,11 +111,20 @@ export const renderPreviewTool: ToolImplementation = {
 
       const { token } = await issuePreviewToken(postId);
 
+      // The top-level navigation above already targets WP_BASE_URL's origin
+      // (renderer-reachable), but WordPress still emits every CSS/JS/font
+      // asset URL on the page using its own configured siteurl (the
+      // permalink's original origin) — unreachable from inside the
+      // renderer's Docker network. Confirmed live: without this rewrite,
+      // every subresource request fails ERR_CONNECTION_REFUSED and the
+      // page renders with zero of its own styles applied. Rewriting every
+      // matching request, not just navigation, is what actually fixes it.
       const bytes = await renderScreenshot({
         url: targetUrl,
         selector,
         allowedHost,
         extraHeaders: { 'X-EMCP-Preview-Token': token },
+        assetOriginRewrite: { from: permalink.origin, to: base.origin },
       });
 
       const summary = elementId

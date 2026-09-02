@@ -24,6 +24,8 @@ export interface RenderRequest {
   /** Both required together — see renderer/src/render.ts's own `RenderOptions` doc. */
   viewportWidth?: number;
   viewportHeight?: number;
+  /** See renderer/src/render.ts's own `RenderOptions.assetOriginRewrite` doc. */
+  assetOriginRewrite?: { from: string; to: string };
 }
 
 /**
@@ -51,6 +53,7 @@ export async function renderScreenshot(
           viewportWidth: request.viewportWidth,
           viewportHeight: request.viewportHeight,
         }),
+      ...(request.assetOriginRewrite !== undefined && { assetOriginRewrite: request.assetOriginRewrite }),
     }),
   });
 

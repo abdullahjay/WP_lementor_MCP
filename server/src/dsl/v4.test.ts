@@ -28,14 +28,23 @@ beforeAll(async () => {
 });
 
 describe('v4 emission — content, matching tests/fixtures/v4-atomic.json\'s exact typed-prop shapes', () => {
-  it('emits container as e-flexbox with no classes/styles when layout is empty, matching an uncustomized element', () => {
+  it('emits container as e-flexbox with a forced display:flex local style even when layout is empty', () => {
     const result = compile(spec([{ type: 'container' }]), siteProfile());
 
     expect(result.diagnostics).toEqual([]);
     const el = result.elements[0]!;
     expect(el.elType).toBe('e-flexbox');
-    expect(el['settings']).toEqual({});
-    expect(el['styles']).toBeUndefined();
+    // display:flex is forced into every container's local style (real bug
+    // found live: without it, a v4 container renders as a plain block —
+    // see emitFlexbox's own docblock) — so an "uncustomized" container
+    // still gets exactly one local style class and one desktop variant.
+    const classes = (el['settings'] as { classes?: { value?: string[] } })['classes'];
+    expect(classes?.value).toHaveLength(1);
+    const className = classes!.value![0]!;
+    const styles = el['styles'] as Record<string, { variants: unknown[] }>;
+    expect(styles[className]?.variants).toEqual([
+      { meta: { breakpoint: 'desktop', state: null }, props: { display: { $$type: 'string', value: 'flex' } }, custom_css: null },
+    ]);
     expect(el['isInner']).toBe(false);
     expect(el['interactions']).toEqual([]);
     expect(el['editor_settings']).toEqual([]);

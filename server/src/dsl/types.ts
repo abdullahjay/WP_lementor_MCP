@@ -70,7 +70,10 @@ export interface LayoutProps {
   padding?: BoxShorthand;
   margin?: BoxShorthand;
   width?: string;
+  maxWidth?: string;
   minHeight?: string;
+  position?: 'static' | 'relative' | 'absolute' | 'fixed' | 'sticky';
+  overflow?: 'visible' | 'hidden' | 'auto';
   /** grid only — the compiler (EMCP-049+), not this grammar layer, enforces that. */
   columns?: number;
 }

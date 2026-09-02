@@ -82,9 +82,9 @@
 
 ## Summary
 - **Total Tasks:** 66
-- **Completed:** 44
+- **Completed:** 62
 - **In Progress:** 0
-- **Not Started:** 22
+- **Not Started:** 4 (EMCP-056–059, OAuth — deliberately paused per 2026-08-31 pivot, D2 still open)
 
 ---
 

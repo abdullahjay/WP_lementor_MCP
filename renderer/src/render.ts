@@ -38,6 +38,21 @@ export interface RenderOptions {
    */
   viewportWidth?: number;
   viewportHeight?: number;
+  /**
+   * Rewrites every request whose origin matches `from` to `to` before the
+   * egress check runs. Closes a real gap found live (EMCP-034 rewrote only
+   * the top-level navigation URL to the renderer-reachable internal host —
+   * CLAUDE.md's WP_HOME/siteurl gotcha — but WordPress still emits every
+   * CSS/JS/font asset URL using its own configured `siteurl`
+   * (`http://localhost:8081` in this sandbox), which is unreachable from
+   * inside the renderer's Docker network. Confirmed live: every single
+   * asset request failed `net::ERR_CONNECTION_REFUSED`, so a rendered page
+   * loaded zero of its own stylesheets — every "screenshot" taken before
+   * this fix was of unstyled HTML, not the real page). The caller supplies
+   * both origins (`from` = the post's own public link's origin, `to` =
+   * `WP_BASE_URL`'s origin) — never guessed or hardcoded here.
+   */
+  assetOriginRewrite?: { from: string; to: string };
 }
 
 const SETTLE_TIMEOUT_MS = 5_000;
@@ -68,10 +83,15 @@ export async function renderScreenshot(url: string, options: RenderOptions = {})
 
   await context.route('**/*', async (route) => {
     try {
-      await assertAllowedTarget(route.request().url(), {
+      const requestUrl = route.request().url();
+      const rewrite = options.assetOriginRewrite;
+      const rewrittenUrl =
+        rewrite && requestUrl.startsWith(rewrite.from) ? rewrite.to + requestUrl.slice(rewrite.from.length) : undefined;
+
+      await assertAllowedTarget(rewrittenUrl ?? requestUrl, {
         ...(options.allowedHost !== undefined && { allowedHost: options.allowedHost }),
       });
-      await route.continue();
+      await route.continue(rewrittenUrl !== undefined ? { url: rewrittenUrl } : {});
     } catch (error) {
       if (error instanceof EgressBlockedError) {
         await route.abort('blockedbyclient');

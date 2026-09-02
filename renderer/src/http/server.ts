@@ -12,6 +12,7 @@ interface RenderRequestBody {
   extraHeaders?: unknown;
   viewportWidth?: unknown;
   viewportHeight?: unknown;
+  assetOriginRewrite?: unknown;
 }
 
 /**
@@ -66,6 +67,7 @@ export function buildServer(): FastifyInstance {
     const extraHeaders = isStringRecord(body?.extraHeaders) ? body.extraHeaders : undefined;
     const viewportWidth = typeof body?.viewportWidth === 'number' ? body.viewportWidth : undefined;
     const viewportHeight = typeof body?.viewportHeight === 'number' ? body.viewportHeight : undefined;
+    const assetOriginRewrite = isOriginRewrite(body?.assetOriginRewrite) ? body.assetOriginRewrite : undefined;
 
     try {
       const png = await renderScreenshot(parsed.toString(), {
@@ -73,6 +75,7 @@ export function buildServer(): FastifyInstance {
         ...(allowedHost !== undefined && { allowedHost }),
         ...(extraHeaders !== undefined && { extraHeaders }),
         ...(viewportWidth !== undefined && viewportHeight !== undefined && { viewportWidth, viewportHeight }),
+        ...(assetOriginRewrite !== undefined && { assetOriginRewrite }),
       });
       reply.header('content-type', 'image/png');
       return await reply.send(png);
@@ -84,6 +87,15 @@ export function buildServer(): FastifyInstance {
   });
 
   return app;
+}
+
+function isOriginRewrite(value: unknown): value is { from: string; to: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { from?: unknown }).from === 'string' &&
+    typeof (value as { to?: unknown }).to === 'string'
+  );
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

@@ -180,9 +180,15 @@ describe('responsive — v4 adds variants to the same styles array, matching res
       siteProfile('v4'),
     );
 
-    const styles = result.elements[0]?.['styles'] as Record<string, { variants: unknown[] }>;
+    const styles = result.elements[0]?.['styles'] as Record<
+      string,
+      { variants: { meta: { breakpoint: string }; props: unknown; custom_css: unknown }[] }
+    >;
     const [className] = Object.keys(styles);
-    const variant = styles[className!]!.variants[0] as { meta: unknown; props: unknown; custom_css: unknown };
+    // A forced desktop display:flex variant (see emitFlexbox) is also
+    // present now — find the widescreen one specifically rather than
+    // assuming it's first.
+    const variant = styles[className!]!.variants.find((v) => v.meta.breakpoint === 'widescreen');
     expect(variant).toEqual({
       meta: { breakpoint: 'widescreen', state: null },
       props: { gap: { $$type: 'size', value: { unit: 'px', size: 40 } } },
@@ -201,10 +207,14 @@ describe('responsive — v4 adds variants to the same styles array, matching res
     expect(settings.classes?.value).toHaveLength(1);
   });
 
-  it('no styles/classes at all when responsive gives nothing mappable (e.g. only unmapped style properties)', () => {
+  it('a bare container still gets exactly the forced display:flex variant when nothing else is mappable', () => {
     const result = compile(spec([{ type: 'container' }]), siteProfile('v4'));
 
-    expect(result.elements[0]?.['styles']).toBeUndefined();
+    const styles = result.elements[0]?.['styles'] as Record<string, { variants: unknown[] }>;
+    const [className] = Object.keys(styles);
+    expect(styles[className!]!.variants).toEqual([
+      { meta: { breakpoint: 'desktop', state: null }, props: { display: { $$type: 'string', value: 'flex' } }, custom_css: null },
+    ]);
   });
 });
 

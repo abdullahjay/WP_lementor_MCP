@@ -54,6 +54,7 @@ services:
       - wp-v4-pro-data:/var/www/html
       - ./sandboxes/wp-v4-pro:/sandbox-assets:ro
       - ./plugin:/var/www/html/wp-content/plugins/emcp
+      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     networks: [wp_net, render_net]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost/wp-login.php"]
@@ -84,6 +85,7 @@ services:
       - wp-v3-free-data:/var/www/html
       - ./sandboxes/wp-v3-free:/sandbox-assets:ro
       - ./plugin:/var/www/html/wp-content/plugins/emcp
+      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     networks: [wp_net, render_net]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost/wp-login.php"]

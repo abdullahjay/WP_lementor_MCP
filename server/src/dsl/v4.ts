@@ -1,5 +1,5 @@
 import { randomHex7, registerEmitter, validateBreakpoint, type EmitContext, type EmitOutcome } from './compile.js';
-import type { BoxShorthand, DimensionValue, LayoutProps, SpecNode } from './types.js';
+import type { BoxShorthand, DimensionValue, LayoutProps, StyleProps, SpecNode } from './types.js';
 
 /**
  * EMCP-051 — Blueprints.md §3.2's v4 column, for real: registers a
@@ -51,26 +51,43 @@ registerEmitter('divider', 'v4', emitDivider);
  * (same convention as v3 — confirmed on the same fixture), `interactions:
  * []`, `editor_settings: []`, `version: "0.0"`. Layout properties are
  * **not** settings in v4 — they're local style props (`buildLocalStyle()`).
+ *
+ * **`display: flex` is forced into every container's local style,
+ * unconditionally.** Confirmed live (a real 3-section page build): without
+ * it, the container renders as a plain block, not a flex container — the
+ * frontend CSS's own base rule is `.e-con{display:var(--display)}`, and
+ * nothing in Elementor's generated CSS ever sets that custom property; a
+ * container gets `display:flex` only from its own local style, which
+ * `v4-atomic.json`'s uncustomized fixture never had a reason to carry
+ * (nothing else about it was customized either). Forcing it here — the one
+ * place every real container passes through — is what makes `flex-direction`/
+ * `justify-content`/etc. actually take visual effect at all, not just
+ * compile without error.
  */
 function emitFlexbox(node: SpecNode, ctx: EmitContext): EmitOutcome {
   if (node.type !== 'container') throw new Error('unreachable');
 
-  return withLocalStyle(node, ctx, (classes) => {
-    const settings: Record<string, unknown> = {};
-    if (classes) settings['classes'] = toTyped('classes', classes);
+  return withLocalStyle(
+    node,
+    ctx,
+    (classes) => {
+      const settings: Record<string, unknown> = {};
+      if (classes) settings['classes'] = toTyped('classes', classes);
 
-    return {
-      element: {
-        elType: 'e-flexbox',
-        settings,
-        isInner: isNestedPath(ctx.path),
-        interactions: [],
-        editor_settings: [],
-        version: '0.0',
-      },
-      diagnostics: [],
-    };
-  });
+      return {
+        element: {
+          elType: 'e-flexbox',
+          settings,
+          isInner: isNestedPath(ctx.path),
+          interactions: [],
+          editor_settings: [],
+          version: '0.0',
+        },
+        diagnostics: [],
+      };
+    },
+    { display: toTyped('string', 'flex') },
+  );
 }
 
 /**
@@ -213,13 +230,15 @@ function withLocalStyle(
   node: SpecNode,
   ctx: EmitContext,
   build: (classes: string[] | null) => EmitOutcome,
+  forcedDesktopProps?: Record<string, unknown>,
 ): EmitOutcome {
-  const desktop = buildStyleProps(node.layout, ctx);
+  const desktop = buildStyleProps(node.layout, node.style, ctx);
   const diagnostics: EmitOutcome['diagnostics'] = [...desktop.diagnostics];
   const variants: Record<string, unknown>[] = [];
+  const desktopProps = { ...forcedDesktopProps, ...desktop.props };
 
-  if (Object.keys(desktop.props).length > 0) {
-    variants.push({ meta: { breakpoint: 'desktop', state: null }, props: desktop.props, custom_css: null });
+  if (Object.keys(desktopProps).length > 0) {
+    variants.push({ meta: { breakpoint: 'desktop', state: null }, props: desktopProps, custom_css: null });
   }
 
   for (const [breakpoint, override] of Object.entries(node.responsive ?? {})) {
@@ -230,7 +249,10 @@ function withLocalStyle(
       continue;
     }
 
-    const { props, diagnostics: propDiagnostics } = buildStyleProps(override.layout, { ...ctx, path: breakpointPath });
+    const { props, diagnostics: propDiagnostics } = buildStyleProps(override.layout, override.style, {
+      ...ctx,
+      path: breakpointPath,
+    });
     diagnostics.push(...propDiagnostics);
     if (Object.keys(props).length > 0) {
       variants.push({ meta: { breakpoint, state: null }, props, custom_css: null });
@@ -267,39 +289,99 @@ function withLocalStyle(
  * properties `block-start`/`inline-end`/`block-end`/`inline-start`, not
  * physical top/right/bottom/left; for LTR content these correspond
  * 1:1 to the DSL's own `[top, right, bottom, left]` box-shorthand order).
+ *
+ * `style` mapping added for the first time here — every key confirmed
+ * against the same `style-schema.php` read live: `color`/`border-color`
+ * (`Color_Prop_Type`, a bare `String_Prop_Type` subclass — `{$$type:
+ * "color", value: "<css color>"}`), `font-family` (`Font_Family_Prop_Type`,
+ * same bare-string shape), `font-weight`/`text-align`/`text-transform`/
+ * `border-style` (`String_Prop_Type` enums), `font-size`/`line-height`/
+ * `letter-spacing`/`border-width`/`border-radius` (`Size_Prop_Type` or a
+ * `Union_Prop_Type` whose second member is a plain `Size_Prop_Type` for a
+ * uniform value — the composite per-corner/per-side shape is deliberately
+ * not used here), and `background` (`Object_Prop_Type` — `{$$type:
+ * "background", value: { color: <Color> } }`, only the `color` sub-field
+ * mapped; `background-overlay`/`clip` are real but out of this task's
+ * scope). `box-shadow` is deliberately not mapped — not needed by the
+ * brief this was built for, and its `Box_Shadow_Prop_Type` shape wasn't
+ * read.
  */
 function buildStyleProps(
   layout: LayoutProps | undefined,
+  style: StyleProps | undefined,
   ctx: EmitContext,
 ): { props: Record<string, unknown>; diagnostics: EmitOutcome['diagnostics'] } {
   const props: Record<string, unknown> = {};
   const diagnostics: EmitOutcome['diagnostics'] = [];
 
-  if (!layout) return { props, diagnostics };
+  if (layout) {
+    if (layout.direction !== undefined) props['flex-direction'] = toTyped('string', layout.direction);
+    if (layout.wrap !== undefined) props['flex-wrap'] = toTyped('string', layout.wrap ? 'wrap' : 'nowrap');
+    if (layout.justify !== undefined) props['justify-content'] = toTyped('string', JUSTIFY_MAP[layout.justify]);
+    if (layout.align !== undefined) props['align-items'] = toTyped('string', ALIGN_MAP[layout.align]);
+    if (layout.gap !== undefined) props['gap'] = toSize(layout.gap);
+    if (layout.padding !== undefined) props['padding'] = toDimensions(layout.padding);
+    if (layout.margin !== undefined) props['margin'] = toDimensions(layout.margin);
+    if (layout.width !== undefined) {
+      if (typeof layout.width === 'number' || /^-?[\d.]+[a-z%]*$/.test(layout.width.trim())) {
+        props['width'] = toSize(layout.width);
+      } else {
+        diagnostics.push({
+          path: `${ctx.path}.layout.width`,
+          severity: 'warning',
+          code: 'NATIVENESS_LOW',
+          message: `layout.width "${layout.width}" is not applied on v4 — only a numeric size (e.g. "1200px"/"50%") maps to the real "width" style prop; keyword values like "full"/"boxed" don't have a v4 equivalent (that's a v3 content_width concept).`,
+        });
+      }
+    }
+    if (layout.minHeight !== undefined) props['min-height'] = toSize(layout.minHeight);
+    if (layout.maxWidth !== undefined) props['max-width'] = toSize(layout.maxWidth);
+    if (layout.position !== undefined) props['position'] = toTyped('string', layout.position);
+    if (layout.overflow !== undefined) props['overflow'] = toTyped('string', layout.overflow);
+  }
 
-  if (layout.direction !== undefined) props['flex-direction'] = toTyped('string', layout.direction);
-  if (layout.wrap !== undefined) props['flex-wrap'] = toTyped('string', layout.wrap ? 'wrap' : 'nowrap');
-  if (layout.justify !== undefined) props['justify-content'] = toTyped('string', JUSTIFY_MAP[layout.justify]);
-  if (layout.align !== undefined) props['align-items'] = toTyped('string', ALIGN_MAP[layout.align]);
-  if (layout.gap !== undefined) props['gap'] = toSize(layout.gap);
-  if (layout.padding !== undefined) props['padding'] = toDimensions(layout.padding);
-  if (layout.margin !== undefined) props['margin'] = toDimensions(layout.margin);
-  if (layout.width !== undefined) {
-    if (typeof layout.width === 'number' || /^-?[\d.]+[a-z%]*$/.test(layout.width.trim())) {
-      props['width'] = toSize(layout.width);
-    } else {
-      diagnostics.push({
-        path: `${ctx.path}.layout.width`,
-        severity: 'warning',
-        code: 'NATIVENESS_LOW',
-        message: `layout.width "${layout.width}" is not applied on v4 — only a numeric size (e.g. "1200px"/"50%") maps to the real "width" style prop; keyword values like "full"/"boxed" don't have a v4 equivalent (that's a v3 content_width concept).`,
-      });
+  if (style) {
+    if (style.color !== undefined) props['color'] = toTyped('color', style.color);
+    if (style.opacity !== undefined) props['opacity'] = toTyped('size', { unit: '%', size: style.opacity * 100 });
+    if (style.radius !== undefined) props['border-radius'] = toSize(style.radius);
+
+    if (style.border) {
+      if (style.border.width !== undefined) props['border-width'] = toSize(style.border.width);
+      if (style.border.color !== undefined) props['border-color'] = toTyped('color', style.border.color);
+      if (style.border.style !== undefined) props['border-style'] = toTyped('string', style.border.style);
+    }
+
+    if (style.background?.color !== undefined) {
+      props['background'] = toTyped('background', { color: toTyped('color', style.background.color) });
+    }
+
+    if (style.typography) {
+      const t = style.typography;
+      if (t.family !== undefined) props['font-family'] = toTyped('font-family', t.family);
+      if (t.weight !== undefined) props['font-weight'] = toTyped('string', String(t.weight));
+      if (t.size !== undefined) props['font-size'] = toSize(t.size);
+      if (t.lineHeight !== undefined) props['line-height'] = toLineHeight(t.lineHeight);
+      if (t.letterSpacing !== undefined) props['letter-spacing'] = toSize(t.letterSpacing);
+      if (t.transform !== undefined) props['text-transform'] = toTyped('string', t.transform);
+      if (t.align !== undefined) {
+        const mapped = TEXT_ALIGN_MAP[t.align] ?? t.align;
+        props['text-align'] = toTyped('string', mapped);
+      }
     }
   }
-  if (layout.minHeight !== undefined) props['min-height'] = toSize(layout.minHeight);
 
   return { props, diagnostics };
 }
+
+/** DSL `TypographyProps.align` is a free string (`left`/`right`/etc.); the real `text-align` enum is `start`/`center`/`end`/`justify`. */
+const TEXT_ALIGN_MAP: Record<string, string> = {
+  left: 'start',
+  right: 'end',
+  center: 'center',
+  justify: 'justify',
+  start: 'start',
+  end: 'end',
+};
 
 const JUSTIFY_MAP: Record<NonNullable<LayoutProps['justify']>, string> = {
   start: 'flex-start',
@@ -324,6 +406,25 @@ function toTyped(type: string, value: unknown): { $$type: string; value: unknown
 /** `Html_V3_Prop_Type`'s real shape — confirmed identical across every fixture using it (heading/paragraph/button all share it). */
 function toHtmlV3(content: string): { $$type: string; value: { content: unknown; children: unknown[] } } {
   return toTyped('html-v3', { content: toTyped('string', content), children: [] }) as ReturnType<typeof toHtmlV3>;
+}
+
+/**
+ * `line-height`'s real unit list (`size-constants.php`: `typography` preset)
+ * includes `'custom'` — a unitless ratio (the CSS convention for tight,
+ * editorial line-heights like `0.95`). A bare number/unitless string here
+ * means that ratio, not pixels — unlike `toSize()`'s default elsewhere,
+ * where §2.6 defines a bare number as px. Only a value carrying an
+ * explicit unit suffix (`"24px"`) falls back to normal size parsing.
+ */
+function toLineHeight(value: DimensionValue): { $$type: string; value: { unit: string; size: number } } {
+  if (typeof value === 'number') return toTyped('size', { unit: 'custom', size: value }) as ReturnType<typeof toSize>;
+
+  const trimmed = value.trim();
+  if (/^-?[\d.]+$/.test(trimmed)) {
+    return toTyped('size', { unit: 'custom', size: Number(trimmed) }) as ReturnType<typeof toSize>;
+  }
+
+  return toSize(value);
 }
 
 /** `size` — confirmed live (`gap`/`font-size` in `v4-atomic.json`): `{ unit, size }`, no `sizes: []` (that's v3's SLIDER-control quirk, not v4's). */
@@ -384,18 +485,17 @@ function isNestedPath(path: string): boolean {
  *   the DSL's own `widget` escape rung (already generation-agnostic,
  *   `compile.ts`'s own built-in emitter) rather than needing a v4-specific
  *   mapping here at all.
- * - **`style`/`typography`/colour/background/border DSL properties**: only
- *   `layout`'s flex/spacing properties are mapped to v4 style props in
- *   this task (`buildStyleProps()`) — `style.color`/`style.typography`/
- *   `style.background` have real, confirmed `style-schema.php` entries
- *   (`color`, `font-family`, `font-size`, `background`, etc. — all seen
- *   in `v4-atomic.json`'s own button example) but mapping the DSL's
- *   `style` object onto them wasn't done within this task's scope.
+ * - **`style.background.image`/`.position`/`.size`, `style.border.width`
+ *   as a per-side value, `style.shadow`**: `style.color`, `.opacity`,
+ *   `.radius`, `.border.{width,color,style}` (uniform, not per-side), and
+ *   `.background.color`, plus every `.typography` field, ARE now mapped
+ *   (added after this module's initial build — see `buildStyleProps()`'s
+ *   own docblock for the confirmed shapes). Background images/overlays and
+ *   box-shadow were not read/mapped.
  * - **`link` (button/heading/image)**: see `linkWarning()` above — the
  *   real `Union_Prop_Type` destination shape isn't confirmed.
  *
  * `responsive` (EMCP-052) is implemented for every emitter here, since
- * they all route through `withLocalStyle()` — but it inherits the same
- * `layout`-only limitation `buildStyleProps()` has at desktop: a
- * `responsive.<bp>.style` override has no effect, same reason as above.
+ * they all route through `withLocalStyle()`, including `responsive.<bp>.style`
+ * now that `style` itself is mapped.
  */

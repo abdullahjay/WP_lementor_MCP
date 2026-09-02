@@ -136,11 +136,17 @@ export const compareToReferenceTool: ToolImplementation = {
 
       const { token } = await issuePreviewToken(postId);
 
+      // See renderPreview.ts's own comment: WordPress emits every CSS/JS/
+      // font asset URL using the permalink's original origin, unreachable
+      // from inside the renderer's Docker network — rewrite every matching
+      // request, not just the top-level navigation, or the capture is of
+      // unstyled HTML.
       const screenshotBytes = await renderScreenshot({
         url: targetUrl,
         selector: `.elementor-${postId}`,
         allowedHost,
         extraHeaders: { 'X-EMCP-Preview-Token': token },
+        assetOriginRewrite: { from: permalink.origin, to: base.origin },
         ...viewport,
       });
 
